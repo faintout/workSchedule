@@ -1,0 +1,210 @@
+<div id="schedule-preview" class="viz-dotted-background">
+  <section class="sp-app" aria-label="团队排班月历">
+    <div id="sp-main" class="sp-main">
+      <header class="sp-header">
+        <div class="sp-title-row"><span class="sp-title">排班日历</span><label class="sp-filter cursor-interaction"><input id="sp-mine" type="checkbox">只看我的</label></div>
+        <div class="sp-month-row"><div class="sp-month-title"><h1 id="sp-month">11 月</h1><span id="sp-year">2026 年</span></div><div class="sp-month-actions"><button type="button" class="sp-nav cursor-interaction" id="sp-prev" aria-label="上个月">‹</button><button type="button" class="sp-nav cursor-interaction" id="sp-next" aria-label="下个月">›</button></div></div>
+        <div id="sp-users" class="sp-users" aria-label="成员颜色"></div>
+      </header>
+      <div class="sp-week"><span>一</span><span>二</span><span>三</span><span>四</span><span>五</span><span class="sp-weekend-label">六</span><span class="sp-weekend-label">日</span></div>
+      <div id="sp-calendar" class="sp-calendar" aria-label="月历"></div>
+      <footer class="sp-footer"><div class="sp-key"><span><i class="sp-key-weekend"></i>周末</span><span><i class="sp-key-mine"></i>我的排班</span><span><i class="sp-key-overtime"></i>我的加班</span></div><span>v0.1.0</span></footer>
+    </div>
+    <div id="sp-overlay" class="sp-overlay" hidden>
+      <section id="sp-dialog" class="sp-dialog" role="dialog" aria-modal="true" aria-labelledby="sp-date">
+        <header class="sp-dialog-header"><div><h2 id="sp-date"></h2><span id="sp-count" class="sp-secondary"></span></div><button type="button" id="sp-close" class="sp-nav cursor-interaction" aria-label="关闭日期详情">×</button></header>
+        <div class="sp-matrix" aria-label="上午下午加班排期">
+          <div class="sp-axis"><span aria-hidden="true"></span><span>上午</span><span>下午</span><span>加班</span></div>
+          <div id="sp-matrix-scroll" class="sp-matrix-scroll"><div id="sp-people" class="sp-people"></div></div>
+        </div>
+        <div id="sp-pagination" class="sp-pagination" hidden><button id="sp-page-prev" type="button" class="sp-page-button cursor-interaction">上一页</button><span id="sp-page-number" aria-live="polite"></span><button id="sp-page-next" type="button" class="sp-page-button cursor-interaction">下一页</button></div>
+        <div id="sp-detail-actions" class="sp-detail-actions"><button type="button" id="sp-edit" class="sp-primary cursor-interaction">添加我的排班</button></div>
+        <form id="sp-form" class="sp-form" hidden>
+          <fieldset><legend>王小明的排班</legend><div class="sp-checks"><label class="cursor-interaction"><input id="sp-am" type="checkbox">上午</label><label class="cursor-interaction"><input id="sp-pm" type="checkbox">下午</label><label class="cursor-interaction"><input id="sp-ot" type="checkbox">加班</label></div></fieldset>
+          <div class="sp-edit-actions"><button type="submit" id="sp-save" class="sp-primary cursor-interaction">保存</button><button type="button" id="sp-cancel" class="sp-secondary-button cursor-interaction">取消</button><button type="button" id="sp-delete" class="sp-delete cursor-interaction">删除</button></div>
+        </form>
+        <div id="sp-status" class="sp-status" aria-live="polite"></div>
+      </section>
+    </div>
+  </section>
+</div>
+<style>
+#schedule-preview{padding:4px 8px;background:transparent;box-sizing:border-box}
+#schedule-preview .sp-app{--sp-bg:light-dark(#fff,#181b23);--sp-fg:light-dark(#202b3e,#e8ecf3);--sp-muted:light-dark(#647087,#a6afc1);--sp-line:light-dark(#e6eaf1,#343b4a);--sp-weekend:light-dark(#f6f7fa,#202530);--sp-mine:light-dark(#eaf2ff,#21314c);--sp-blue:light-dark(#356fd5,#8bafff);--sp-orange:#B97543;--sp-user-0:#526B8A;--sp-user-1:#587663;--sp-user-2:#4E7178;--sp-user-3:#736481;--sp-user-4:#875F73;--sp-user-5:#456C66;--sp-user-6:#535B79;--sp-user-7:#68744F;--sp-user-8:#7C654A;--sp-user-9:#424D5D;position:relative;width:min(100%,400px);height:552px;margin:0 auto;background:var(--sp-bg);color:var(--sp-fg);border:1px solid var(--sp-line);border-radius:18px;overflow:clip;font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;font-size:14px;box-shadow:0 6px 22px light-dark(#20304d0c,#00000025)}
+#schedule-preview .sp-app{box-sizing:border-box;--sp-font-size:14px;--sp-blue:light-dark(#526B8A,#A3B1C3);--sp-orange:#B97543;--sp-warm-strong:light-dark(#8D512C,#E0AC88);--sp-warm-bg:light-dark(#F5EADF,#332A24);--sp-self-line:light-dark(#36485D,#D0DAE6);--sp-self-lane:light-dark(#EDF0F4,#2B3340);--sp-user-0:#526B8A;--sp-user-1:#587663;--sp-user-2:#4E7178;--sp-user-3:#736481;--sp-user-4:#875F73;--sp-user-5:#456C66;--sp-user-6:#535B79;--sp-user-7:#68744F;--sp-user-8:#7C654A;--sp-user-9:#424D5D;font-size:var(--sp-font-size)}
+#schedule-preview .sp-app{line-height:1.3}
+#schedule-preview .sp-app *{box-sizing:border-box}
+#schedule-preview .sp-main{height:100%;display:flex;flex-direction:column;min-height:0}
+#schedule-preview .sp-header{padding:8px 12px 6px;flex:none}
+#schedule-preview .sp-title-row,#schedule-preview .sp-month-row,#schedule-preview .sp-dialog-header{display:flex;justify-content:space-between;align-items:center;gap:8px}
+#schedule-preview .sp-title{font-weight:500}
+#schedule-preview .sp-filter{display:flex;align-items:center;gap:5px;min-height:32px;font-size:12px;color:var(--sp-muted)}
+#schedule-preview input{accent-color:var(--sp-blue)}
+#schedule-preview .sp-month-row{margin:2px 0 5px}
+#schedule-preview .sp-month-title{display:flex;align-items:baseline;gap:10px;min-width:0}
+#schedule-preview h1{font-size:27px;line-height:1.15;font-weight:500;margin:0;white-space:nowrap}
+#schedule-preview #sp-year{font-size:12px;color:var(--sp-muted);white-space:nowrap}
+#schedule-preview .sp-month-actions{display:flex;gap:4px}
+#schedule-preview button{font:inherit;color:inherit}
+#schedule-preview .sp-nav{width:40px;height:40px;flex-shrink:0;background:var(--sp-bg);border:1px solid var(--sp-line);border-radius:10px;font-size:22px;line-height:1.1}
+#schedule-preview .sp-users{display:flex;flex-wrap:nowrap;gap:12px;align-items:center;height:30px;overflow-x:auto;overflow-y:hidden;scrollbar-width:thin;font-size:12px}
+#schedule-preview .sp-user-label{display:inline-flex;align-items:center;gap:5px;white-space:nowrap;flex:none}
+#schedule-preview .sp-dot{display:inline-block;flex-shrink:0;width:8px;height:8px;border-radius:50%;background:var(--sp-user-color)}
+#schedule-preview .sp-me-label{font-size:11px;color:var(--sp-blue)}
+#schedule-preview .sp-week{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));text-align:center;padding:6px 0;color:var(--sp-muted);font-size:11px;border-top:1px solid var(--sp-line);flex:none}
+#schedule-preview .sp-weekend-label{color:var(--sp-orange)}
+#schedule-preview .sp-calendar{flex:1;min-height:0;display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:1px;background:var(--sp-line);border-top:1px solid var(--sp-line);border-bottom:1px solid var(--sp-line)}
+#schedule-preview .sp-day,#schedule-preview .sp-empty{min-width:0;min-height:0;background:var(--sp-bg)}
+#schedule-preview .sp-day{padding:3px 3px;display:grid;grid-template-rows:auto minmax(0,1fr);justify-items:center;gap:2px;border:0;text-align:left;border-radius:0}
+#schedule-preview .sp-day.is-weekend{background:var(--sp-weekend)}
+#schedule-preview .sp-day.has-mine{background:var(--sp-mine);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--sp-blue) 23%,transparent)}
+#schedule-preview .sp-day.has-mine-ot{background:var(--sp-warm-bg);box-shadow:inset 0 2px 0 var(--sp-orange),inset 0 0 0 1px color-mix(in srgb,var(--sp-orange) 25%,transparent)}
+#schedule-preview .sp-day.is-selected{box-shadow:inset 0 0 0 2px var(--sp-blue)}
+#schedule-preview .sp-number-row{width:100%;min-width:0;display:flex;align-items:center;justify-content:space-between;font-size:calc(var(--sp-font-size)*.786);line-height:1.15;gap:2px}
+#schedule-preview .sp-own-ot{color:var(--sp-warm-strong);font-weight:500;font-size:calc(var(--sp-font-size)*.786);line-height:1.15;border-bottom:1px solid var(--sp-orange);flex:none}
+#schedule-preview .sp-number{font-weight:500}
+#schedule-preview .sp-date-markers{display:flex;align-items:center;justify-content:flex-end;flex-wrap:wrap;gap:2px;min-width:0}
+#schedule-preview .sp-rest{color:var(--sp-muted);font-size:calc(var(--sp-font-size)*.786)}
+#schedule-preview .sp-today{color:var(--sp-blue)}
+#schedule-preview .sp-avatars{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));grid-template-rows:repeat(2,16px);gap:2px;width:100%;height:100%;min-height:0;justify-content:center;align-content:start;padding:1px}
+#schedule-preview .sp-avatar{width:var(--sp-avatar-size,16px);height:var(--sp-avatar-size,16px);display:flex;align-items:center;justify-content:center;justify-self:center;border-radius:50%;font-size:calc(var(--sp-font-size)*.75);line-height:1;background:var(--sp-avatar-color);color:var(--sp-avatar-text);font-weight:400}
+#schedule-preview .sp-avatar.is-me{box-shadow:inset 0 0 0 1px #FFFFFF,inset 0 0 0 2px var(--sp-self-line)}
+#schedule-preview .sp-extra{display:flex;align-items:center;justify-content:center;font-size:calc(var(--sp-font-size)*.786);line-height:1.3;color:var(--sp-muted);white-space:nowrap}
+#schedule-preview .sp-footer{display:flex;align-items:center;justify-content:space-between;gap:6px;padding:9px 10px;flex:none;font-size:11px;color:var(--sp-muted)}
+#schedule-preview .sp-key{display:flex;gap:8px;flex-wrap:nowrap}
+#schedule-preview .sp-key span{display:flex;align-items:center;gap:3px;white-space:nowrap}
+#schedule-preview .sp-key i{width:7px;height:7px;display:inline-block;border-radius:2px}
+#schedule-preview .sp-key-weekend{background:var(--sp-weekend);border:1px solid var(--sp-line)}
+#schedule-preview .sp-key-mine{background:var(--sp-mine);border:1px solid var(--sp-blue)}
+#schedule-preview .sp-key-overtime{background:var(--sp-orange)}
+#schedule-preview .sp-overlay{position:absolute;inset:0;z-index:20;background:light-dark(#15243f66,#00000088);padding:6px;display:flex;align-items:center;justify-content:center}
+#schedule-preview .sp-overlay[hidden],#schedule-preview .sp-form[hidden],#schedule-preview .sp-detail-actions[hidden],#schedule-preview #sp-delete[hidden],#schedule-preview .sp-pagination[hidden]{display:none}
+#schedule-preview .sp-dialog{width:100%;max-height:100%;padding:8px;background:var(--sp-bg);color:var(--sp-fg);border-radius:14px;box-shadow:0 12px 32px #00000030}
+#schedule-preview h2{font-size:16px;font-weight:500;margin:0 0 4px}
+#schedule-preview .sp-secondary{font-size:11px;color:var(--sp-muted)}
+#schedule-preview .sp-matrix{display:flex;gap:4px;margin:8px 0;min-width:0;height:324px}
+#schedule-preview .sp-axis{width:24px;flex:none;display:grid;grid-template-rows:24px 120px 120px 60px;color:var(--sp-muted);font-size:12px}
+#schedule-preview .sp-axis span{display:flex;align-items:center;justify-content:center;border-bottom:1px solid var(--sp-line)}
+#schedule-preview .sp-axis span:last-child{color:var(--sp-orange);border-bottom:0}
+#schedule-preview .sp-matrix-scroll{flex:1;min-width:0;overflow:visible}
+#schedule-preview .sp-matrix-scroll::-webkit-scrollbar{display:none}
+#schedule-preview .sp-people{display:grid;grid-template-columns:repeat(var(--sp-count),minmax(0,1fr));gap:3px;min-width:0;width:100%;height:324px}
+#schedule-preview .sp-person-column{display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:24px 120px 120px 60px;min-width:0;position:relative;border-radius:7px}
+#schedule-preview .sp-person-column.is-me::after{content:"";position:absolute;inset:0;border:2px solid var(--sp-self-line);border-radius:7px;pointer-events:none;z-index:5}
+#schedule-preview .sp-column-header{grid-column:1;grid-row:1;display:flex;align-items:center;justify-content:center;font-size:11px;line-height:1.1;color:var(--sp-muted)}
+#schedule-preview .sp-person-column.is-me .sp-column-header{background:var(--sp-self-lane);color:var(--sp-self-line);font-weight:500;border-radius:7px 7px 0 0}
+#schedule-preview .sp-person-column.is-me .sp-lane{background:var(--sp-self-lane)}
+#schedule-preview .sp-lane{grid-column:1;background:var(--sp-weekend);border-bottom:1px solid var(--sp-line);min-width:0}
+#schedule-preview .sp-lane:last-of-type{border-bottom:0}
+#schedule-preview .sp-block{grid-column:1;position:relative;z-index:1;min-width:0;padding:0;border:0;border-radius:6px;background:var(--sp-block-fill);color:var(--sp-block-text)}
+#schedule-preview .sp-block.is-me{box-shadow:inset 0 0 0 2px var(--sp-self-line)}
+#schedule-preview .sp-block-label{position:absolute;inset:0 0 auto;height:var(--sp-name-height);display:flex;align-items:center;justify-content:center;padding:2px}
+#schedule-preview .sp-block-name{writing-mode:vertical-rl;text-orientation:upright;font-size:calc(var(--sp-font-size)*.786);line-height:1.1;max-height:100%;max-width:100%;overflow-wrap:anywhere;word-break:break-all;letter-spacing:0}
+#schedule-preview .sp-block.is-ot-only .sp-block-name{font-size:11px;line-height:1.05}
+#schedule-preview .sp-block-identity{position:absolute;top:4px;left:4px;width:7px;height:7px;z-index:2;border-radius:50%;background:var(--sp-user-color);border:1px solid #ffffff}
+#schedule-preview .sp-block-me{position:absolute;top:3px;right:3px;font-size:11px;z-index:2}
+#schedule-preview .sp-empty-detail{display:flex;align-items:center;justify-content:center;width:100%;height:324px;font-size:12px;color:var(--sp-muted)}
+#schedule-preview .sp-pagination{display:flex;justify-content:center;align-items:center;gap:10px;margin:0 0 7px;font-size:11px;color:var(--sp-muted)}
+#schedule-preview .sp-page-button{background:var(--sp-bg);border:1px solid var(--sp-line);border-radius:7px;padding:4px 8px;min-height:30px;font-size:11px}
+#schedule-preview .sp-page-button:disabled{opacity:.4}
+#schedule-preview .sp-primary,#schedule-preview .sp-secondary-button,#schedule-preview .sp-delete{min-height:42px;padding:9px 14px;border-radius:9px;font-size:13px;line-height:1.2}
+#schedule-preview .sp-primary{background:var(--sp-blue);color:var(--sp-bg);border:0}
+#schedule-preview .sp-secondary-button,#schedule-preview .sp-delete{background:var(--sp-bg);border:1px solid var(--sp-line)}
+#schedule-preview .sp-delete{color:var(--sp-orange);margin-left:auto}
+#schedule-preview .sp-detail-actions,#schedule-preview .sp-edit-actions{display:flex;align-items:center;gap:8px}
+#schedule-preview .sp-form fieldset{border:0;padding:0;margin:0 0 5px}
+#schedule-preview .sp-form legend{font-size:12px;color:var(--sp-muted);padding:0}
+#schedule-preview .sp-checks{display:flex;align-items:center;gap:12px}
+#schedule-preview .sp-checks label{display:flex;align-items:center;gap:4px;min-height:36px;font-size:13px}
+#schedule-preview .sp-status{font-size:11px;color:var(--sp-muted);margin-top:7px}
+#schedule-preview .sp-status:empty{display:none}
+@media(max-width:350px){#schedule-preview .sp-header{padding:8px 10px 6px}#schedule-preview .sp-footer{padding:9px 8px}#schedule-preview .sp-key{gap:6px}}
+</style>
+<script>
+(() => {
+  const root = document.getElementById("schedule-preview");
+  const find = id => root.querySelector("#" + id);
+  const OVERTIME_AVATAR_SCOPE = "self"; // Change to "all" if all members need orange overtime avatars.
+  const users = [{id:0,name:"王小明"},{id:1,name:"李晓丽"},{id:2,name:"陈晨"},{id:3,name:"刘芳"},{id:4,name:"Alexandria"},{id:5,name:"周雨晴"},{id:6,name:"赵子轩"},{id:7,name:"孙悦"},{id:8,name:"郑浩"},{id:9,name:"吴思语"}];
+  const colors = ["#526B8A","#587663","#4E7178","#736481","#875F73","#456C66","#535B79","#68744F","#7C654A","#424D5D"];
+  const overtimeColor = "#B97543";
+  const weekdays = ["周日","周一","周二","周三","周四","周五","周六"];
+  const seed = {};
+  function add(day,user,am,pm,ot=false) {const key="2026-11-"+String(day).padStart(2,"0");(seed[key] ||= []).push({user,am,pm,ot});}
+  [[2,0,true,false],[2,1,true,true],[2,2,false,true],[3,1,true,true],[3,3,true,false],[4,0,true,false,true],[4,1,true,true,true],[4,2,true,true],[4,3,false,true],[4,4,true,false],[5,2,true,false],[5,3,false,true],[5,4,false,false,true],[6,0,true,true,true],[6,1,true,true],[6,2,true,false,true],[6,3,false,true,true],[6,4,false,false,true],[7,0,false,false,true],[7,3,false,true],[7,4,false,false,true],[9,0,true,false],[9,2,true,true],[11,1,true,true],[11,4,true,false],[12,0,false,false,true],[12,1,true,true],[12,2,true,true],[12,3,true,true,true],[12,4,true,true],[14,1,false,false,true],[14,4,false,false,true],[16,0,true,true],[16,3,true,true],[18,0,false,true,true],[18,1,true,true],[18,2,true,false],[18,4,true,true],[20,2,false,false,true],[20,3,false,true],[21,0,false,false,true],[23,0,true,false],[23,1,false,true],[23,3,true,true],[25,2,true,false],[25,1,false,true],[25,4,true,true],[26,0,true,true,true],[26,1,true,true],[26,2,true,true],[26,3,true,true],[26,4,true,true],[27,3,false,true],[27,4,true,true],[30,0,true,true],[30,1,true,true],[30,2,false,true]].forEach(a=>add(...a));
+  users.forEach(u=>add(10,u.id,u.id===0?false:u.id%3!==1,u.id===0?false:u.id%3!==2,u.id%4===0));
+  const state={schema:3,year:2026,month:10,onlyMine:false,limit:3,schedules:seed};
+  let selectedDate=null, returnDate=null, editing=false, detailPage=0;
+  const slots=e=>Number(e.am)+Number(e.pm)+Number(e.ot);
+  const records=date=>(state.schedules[date]||[]).slice().sort((a,b)=>slots(b)-slots(a)||a.user-b.user);
+  const visible=date=>records(date).filter(e=>!state.onlyMine||e.user===0);
+  const shift=e=>[e.am&&e.pm?"全天":e.am?"上午":e.pm?"下午":"",e.ot?"加班":""].filter(Boolean).join(" · ");
+  const dot=id=>'<i class="sp-dot" style="--sp-user-color:'+colors[id%colors.length]+'" aria-hidden="true"></i>';
+  function textColor(hex){const c=hex.slice(1).match(/.{2}/g).map(v=>parseInt(v,16)/255).map(v=>v<=.04045?v/12.92:Math.pow((v+.055)/1.055,2.4));return c[0]*.2126+c[1]*.7152+c[2]*.0722>.179?"#141414":"#FFFFFF";}
+  function restore(value){const p=value?.privateContent;if(!p||![2,3].includes(p.schema))return;if(Number.isInteger(p.year)&&p.year>=1900&&p.year<=2100)state.year=p.year;if(Number.isInteger(p.month)&&p.month>=0&&p.month<=11)state.month=p.month;if(typeof p.onlyMine==="boolean")state.onlyMine=p.onlyMine;if(Number.isInteger(p.limit)&&p.limit>=2&&p.limit<=3)state.limit=p.limit;if(p.schedules&&typeof p.schedules==="object"){const valid={};Object.entries(p.schedules).forEach(([d,list])=>{if(/^\d{4}-\d{2}-\d{2}$/.test(d)&&Array.isArray(list))valid[d]=list.filter(e=>Number.isInteger(e.user)&&users[e.user]&&["am","pm","ot"].every(k=>typeof e[k]==="boolean")&&slots(e)>0).slice(0,users.length)});state.schedules=valid}}
+  function remember(){if(window.openai?.setWidgetState)Promise.resolve(window.openai.setWidgetState({modelContent:{month:state.year+"-"+String(state.month+1).padStart(2,"0"),onlyMine:state.onlyMine,currentUser:"王小明",visiblePeopleLimit:state.limit,selectedDate},privateContent:{...state}})).catch(()=>{})}
+  function renderCalendar(){
+    state.limit=Math.max(2,Math.min(3,Math.round(state.limit)));find("sp-year").textContent=state.year+" 年";find("sp-month").textContent=(state.month+1)+" 月";find("sp-mine").checked=state.onlyMine;
+    find("sp-users").innerHTML=users.map(u=>'<span class="sp-user-label">'+dot(u.id)+u.name+(u.id===0?'<span class="sp-me-label">我</span>':'')+'</span>').join("");
+    const start=(new Date(Date.UTC(state.year,state.month,1)).getUTCDay()+6)%7,days=new Date(Date.UTC(state.year,state.month+1,0)).getUTCDate(),weeks=Math.ceil((start+days)/7);let html="";
+    find("sp-calendar").style.gridTemplateRows="repeat("+weeks+",minmax(0,1fr))";
+    for(let i=0;i<weeks*7;i++){const day=i-start+1;if(day<1||day>days){html+='<span class="sp-empty" aria-hidden="true"></span>';continue}const date=state.year+"-"+String(state.month+1).padStart(2,"0")+"-"+String(day).padStart(2,"0"),entries=visible(date),own=records(date).find(e=>e.user===0),weekend=i%7>=5;
+      html+='<button type="button" data-date="'+date+'" class="sp-day cursor-interaction'+(weekend?' is-weekend':'')+(own?' has-mine':'')+(own?.ot?' has-mine-ot':'')+(selectedDate===date?' is-selected':'')+'" aria-label="'+(state.month+1)+'月'+day+'日，'+(entries.length?entries.map(e=>users[e.user].name+" "+shift(e)).join("，"):"暂无排班")+'" aria-expanded="'+(selectedDate===date)+'" aria-haspopup="dialog"><span class="sp-number-row"><span class="sp-number'+(date==="2026-11-02"?' sp-today':'')+'">'+day+'</span><span class="sp-date-markers">'+(own?.ot?'<span class="sp-own-ot">加</span>':'')+(weekend?'<span class="sp-rest">休</span>':'')+'</span></span><span class="sp-avatars"></span></button>';
+    }
+    find("sp-calendar").innerHTML=html;find("sp-calendar").setAttribute("aria-label",state.year+"年"+(state.month+1)+"月");fitCalendar();
+  }
+  const countMeasure=document.createElement("canvas").getContext("2d");
+  function fitCalendar(){
+    const days=Array.from(root.querySelectorAll(".sp-day")),app=root.querySelector(".sp-app"),calendar=find("sp-calendar");
+    if(!days.length)return;
+    const weeks=Math.ceil(calendar.children.length/7),chrome=app.clientHeight-calendar.clientHeight;
+    const minimumDay=Math.max(...days.map(day=>{const row=day.querySelector(".sp-number-row"),font=parseFloat(getComputedStyle(row).fontSize);return row.getBoundingClientRect().height+Math.max(16,Math.ceil(font+4))+13}));
+    app.style.minHeight=Math.max(552,Math.ceil(chrome+weeks*minimumDay+2))+"px";
+    days.forEach(day=>{
+      const area=day.querySelector(".sp-avatars"),entries=visible(day.dataset.date),style=getComputedStyle(day.querySelector(".sp-number-row")),font=parseFloat(style.fontSize),size=Math.max(16,Math.ceil(font+4)),r=area.getBoundingClientRect();
+      countMeasure.font=style.fontWeight+" "+style.fontSize+" "+style.fontFamily;
+      const countWidth=Math.ceil(Math.max(0,...entries.map((_,i)=>countMeasure.measureText("+"+(i+1)).width)))+2,cols=r.width-2>=size*2+2?2:r.width-2>=size?1:0,rows=Math.max(0,Math.min(2,Math.floor((r.height-2+2)/(size+2)))),capacity=cols*rows;
+      let shown=Math.min(entries.length,state.limit,capacity),counterSpan=0;
+      if(entries.length>shown){const columnWidth=(r.width-2-Math.max(cols-1,0)*2)/Math.max(cols,1);counterSpan=cols===2&&countWidth>columnWidth?2:1;while(shown>0&&shown+counterSpan>capacity)shown--;}
+      area.style.setProperty("--sp-avatar-size",size+"px");area.style.gridTemplateColumns="repeat("+Math.max(cols,1)+",minmax(0,1fr))";area.style.gridTemplateRows=rows?"repeat("+rows+","+size+"px)":"auto";
+      area.innerHTML=entries.slice(0,shown).map(e=>{const color=e.ot&&(OVERTIME_AVATAR_SCOPE==="all"||e.user===0)?overtimeColor:colors[e.user%colors.length];return '<span class="sp-avatar'+(e.user===0?' is-me':'')+'" style="--sp-avatar-color:'+color+';--sp-avatar-text:'+textColor(color)+'">'+users[e.user].name.slice(-1)+'</span>'}).join("")+(entries.length>shown?'<span class="sp-extra" style="grid-column:span '+counterSpan+'">+'+(entries.length-shown)+'</span>':'');
+    });
+  }
+  function block(e,start,end){
+    const rows=[120,120,60],normalHeight=rows.slice(start,Math.min(end+1,2)).reduce((a,b)=>a+b,0),height=rows.slice(start,end+1).reduce((a,b)=>a+b,0),hasOT=end===2,identity=colors[e.user%colors.length],fill=hasOT&&normalHeight?'linear-gradient(to bottom,'+identity+' 0 '+(normalHeight/height*100)+'%,'+overtimeColor+' '+(normalHeight/height*100)+'% 100%)':hasOT?overtimeColor:identity,tag=e.user===0?"button":"div";
+    return '<'+tag+(tag==="button"?' type="button" data-edit-user="0"':'')+' class="sp-block'+(e.user===0?' is-me cursor-interaction':'')+(!normalHeight?' is-ot-only':'')+'" style="grid-row:'+(start+2)+' / '+(end+3)+';--sp-user-color:'+identity+';--sp-block-fill:'+fill+';--sp-block-text:'+textColor(normalHeight?identity:overtimeColor)+';--sp-name-height:'+(normalHeight||height)+'px" aria-label="'+users[e.user].name+"，"+shift(e)+(e.user===0?"，编辑我的排班":"，只读")+'"><i class="sp-block-identity" aria-hidden="true"></i><span class="sp-block-label"><span class="sp-block-name">'+users[e.user].name+'</span></span></'+tag+'>';
+  }
+  function renderDetail(locateOwn=false){
+    if(!selectedDate)return;const parts=selectedDate.split("-").map(Number),entries=visible(selectedDate);
+    find("sp-date").textContent=parts[0]+"年"+parts[1]+"月"+parts[2]+"日";find("sp-count").textContent=weekdays[new Date(Date.UTC(parts[0],parts[1]-1,parts[2])).getUTCDay()]+" · "+(state.onlyMine?"仅我的排班":"")+entries.length+" 人排班";
+    const width=find("sp-matrix-scroll").getBoundingClientRect().width||root.querySelector(".sp-app").clientWidth-56,capacity=entries.length<=5?Math.max(entries.length,1):Math.max(4,Math.min(6,Math.floor((width+3)/43))),pages=Math.max(1,Math.ceil(entries.length/capacity));if(locateOwn){const ownIndex=entries.findIndex(e=>e.user===0);detailPage=ownIndex>=0?Math.floor(ownIndex/capacity):0}detailPage=Math.max(0,Math.min(pages-1,detailPage));const shown=entries.slice(detailPage*capacity,(detailPage+1)*capacity);
+    find("sp-people").style.setProperty("--sp-count",String(Math.max(shown.length,1)));
+    find("sp-people").innerHTML=shown.length?shown.map(e=>{let html='<article class="sp-person-column'+(e.user===0?' is-me':'')+'" data-user="'+e.user+'" aria-label="'+users[e.user].name+'"><div class="sp-column-header">'+(e.user===0?'我':'')+'</div>';for(let row=0;row<3;row++)html+='<span class="sp-lane" style="grid-row:'+(row+2)+'" aria-hidden="true"></span>';const chosen=[e.am,e.pm,e.ot];for(let row=0;row<3;row++){if(!chosen[row])continue;let end=row;while(end+1<3&&chosen[end+1])end++;html+=block(e,row,end);row=end;}return html+'</article>'}).join(""):'<div class="sp-empty-detail">当天暂无排班</div>';
+    find("sp-pagination").hidden=pages<=1||editing;find("sp-page-number").textContent=(detailPage+1)+" / "+pages;find("sp-page-prev").disabled=detailPage===0;find("sp-page-next").disabled=detailPage===pages-1;
+    find("sp-edit").textContent=records(selectedDate).some(e=>e.user===0)?"编辑我的排班":"添加我的排班";
+    find("sp-form").hidden=!editing;find("sp-detail-actions").hidden=editing;
+  }
+  function render(){renderCalendar();if(selectedDate)renderDetail()}
+  function openDate(date){selectedDate=date;returnDate=date;editing=false;detailPage=0;find("sp-status").textContent="";find("sp-overlay").hidden=false;find("sp-main").inert=true;render();renderDetail(true);find("sp-close").focus();remember()}
+  function closeDate(){const previous=returnDate;selectedDate=null;editing=false;find("sp-overlay").hidden=true;find("sp-main").inert=false;renderCalendar();if(previous)root.querySelector('[data-date="'+previous+'"]')?.focus();remember()}
+  function updateSaveAction(){const chosen=["am","pm","ot"].some(k=>find("sp-"+k).checked),existing=records(selectedDate).some(e=>e.user===0);find("sp-save").textContent=existing&&!chosen?"确认删除":"保存";find("sp-save").disabled=!existing&&!chosen}
+  function editOwn(){if(!selectedDate)return;const own=records(selectedDate).find(e=>e.user===0);["am","pm","ot"].forEach(k=>find("sp-"+k).checked=!!own?.[k]);find("sp-delete").hidden=!own;find("sp-status").textContent="";editing=true;renderDetail(true);updateSaveAction();find("sp-am").focus()}
+  function saveOwn(remove=false){if(!selectedDate)return;const entry={user:0,am:find("sp-am").checked,pm:find("sp-pm").checked,ot:find("sp-ot").checked};if(!remove&&!slots(entry)&&!records(selectedDate).some(e=>e.user===0))return;state.schedules[selectedDate]=records(selectedDate).filter(e=>e.user!==0);if(!remove&&slots(entry))state.schedules[selectedDate].push(entry);editing=false;find("sp-status").textContent=remove||!slots(entry)?"已删除我的排班":"已保存我的排班";render();renderDetail(true);find("sp-edit").focus();remember()}
+  restore(window.openai?.widgetState);renderCalendar();
+  find("sp-mine").addEventListener("change",e=>{state.onlyMine=e.target.checked;render();remember()});
+  find("sp-calendar").addEventListener("click",e=>{const button=e.target.closest("button[data-date]");if(button)openDate(button.dataset.date)});
+  find("sp-close").addEventListener("click",closeDate);
+  find("sp-overlay").addEventListener("click",e=>{if(e.target===find("sp-overlay"))closeDate()});
+  find("sp-people").addEventListener("click",e=>{if(e.target.closest("button[data-edit-user]"))editOwn()});
+  find("sp-edit").addEventListener("click",editOwn);
+  find("sp-page-prev").addEventListener("click",()=>{detailPage--;renderDetail()});find("sp-page-next").addEventListener("click",()=>{detailPage++;renderDetail()});
+  ["am","pm","ot"].forEach(k=>find("sp-"+k).addEventListener("change",updateSaveAction));
+  find("sp-cancel").addEventListener("click",()=>{editing=false;renderDetail();find("sp-edit").focus()});
+  find("sp-form").addEventListener("submit",e=>{e.preventDefault();saveOwn()});
+  find("sp-delete").addEventListener("click",()=>saveOwn(true));
+  function moveMonth(amount){const date=new Date(Date.UTC(state.year,state.month+amount,1));state.year=date.getUTCFullYear();state.month=date.getUTCMonth();renderCalendar();remember()}
+  find("sp-prev").addEventListener("click",()=>moveMonth(-1));find("sp-next").addEventListener("click",()=>moveMonth(1));
+  root.addEventListener("keydown",e=>{if(find("sp-overlay").hidden)return;if(e.key==="Escape"){e.preventDefault();closeDate()}else if(e.key==="Tab"){const targets=Array.from(find("sp-dialog").querySelectorAll('button:not([disabled]),input:not([disabled])')).filter(el=>el.getClientRects().length),first=targets[0],last=targets[targets.length-1];if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus()}else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus()}}});
+  const resizeObserver=new ResizeObserver(()=>{fitCalendar();if(selectedDate)renderDetail()});resizeObserver.observe(root.querySelector(".sp-app"));
+})();
+</script>
