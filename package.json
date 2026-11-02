@@ -1,0 +1,33 @@
+{
+  "name": "work-schedule",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "overrides": { "glob": "^14.0.2" },
+  "scripts": {
+    "dev": "node --env-file-if-exists=.env --import tsx --watch server/index.ts",
+    "dev:web": "vite --host 0.0.0.0",
+    "check": "vue-tsc --noEmit && tsc --noEmit -p tsconfig.server.json",
+    "build": "npm run check && vite build && tsc -p tsconfig.server.json",
+    "start": "node --env-file-if-exists=.env dist/server/index.js",
+    "test": "node --test --import tsx tests/*.test.ts",
+    "backup": "node --env-file-if-exists=.env dist/server/backup.js"
+  },
+  "dependencies": {
+    "@fastify/cookie": "^11.0.2",
+    "@fastify/static": "^10.1.8",
+    "fastify": "^5.6.2",
+    "vue": "^3.5.22"
+  },
+  "devDependencies": {
+    "@types/node": "^22.19.0",
+    "@vitejs/plugin-vue": "^6.0.2",
+    "tsx": "^4.20.6",
+    "typescript": "~5.9.3",
+    "vite": "^7.1.12",
+    "vue-tsc": "^3.1.2"
+  }
+}
