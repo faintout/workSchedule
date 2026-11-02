@@ -29,7 +29,7 @@ const calendar = ref<HTMLElement>()
 const viewportHeight = ref(window.innerHeight)
 const scheduleDialog = ref<InstanceType<typeof ScheduleDialog>>()
 const avatarWidth = ref(34)
-const modal = ref<'identity' | 'admin' | 'month' | null>(null)
+const modal = ref<'identity' | 'admin' | 'month' | 'rename' | null>(null)
 const tab = ref('calendar')
 const name = ref('')
 const candidates = ref<User[] | null>(null)
@@ -40,12 +40,17 @@ const busy = ref(false)
 const connected = ref(false)
 const adminUsers = ref<User[]>([])
 const newName = ref('')
+const renamingUser = ref<User | null>(null)
+const renameName = ref('')
+const renameAsAdmin = ref(false)
 const homeTitle = ref('')
 const settingsNotice = ref('')
 const logDate = ref(shanghaiToday())
 const logPage = ref(1)
 const logData = ref<{ logs: Log[]; total: number; pageSize: number }>({ logs: [], total: 0, pageSize: 30 })
 let requestNumber = 0
+let identityRequestNumber = 0
+let usersRequestNumber = 0
 let identityAttempt = 0
 let timer: ReturnType<typeof setInterval>
 let observer: ResizeObserver
@@ -54,7 +59,9 @@ watch(logDate, () => { logPage.value = 1; if (tab.value === 'logs') void loadLog
 function message(cause: unknown) { error.value = cause instanceof Error ? cause.message : '网络连接失败，请重试' }
 function rememberIdentity() { if (currentUser.value) localStorage.setItem('schedule.user', JSON.stringify(currentUser.value)); else localStorage.removeItem('schedule.user') }
 async function refreshIdentity() {
+  const number = ++identityRequestNumber
   const session = await api<{ user: User | null; admin: boolean }>('/session')
+  if (number !== identityRequestNumber) return
   currentUser.value = session.user; admin.value = session.admin; connected.value = true; rememberIdentity()
   if (!session.admin) tab.value = 'calendar'
 }
@@ -129,7 +136,22 @@ async function saveSettings() {
   busy.value = true; error.value = ''; settingsNotice.value = ''
   try { const result = await api<{ homeTitle: string }>('/admin/settings', 'PUT', { homeTitle: homeTitle.value }); data.value.homeTitle = result.homeTitle; homeTitle.value = result.homeTitle; settingsNotice.value = '首页标题已保存' } catch (cause) { message(cause) } finally { busy.value = false }
 }
-async function loadUsers() { try { adminUsers.value = (await api<{ users: User[] }>('/admin/users')).users } catch (cause) { message(cause) } }
+async function loadUsers() {
+  const number = ++usersRequestNumber
+  try { const result = await api<{ users: User[] }>('/admin/users'); if (number === usersRequestNumber) adminUsers.value = result.users } catch (cause) { if (number === usersRequestNumber) message(cause) }
+}
+function openRename(user: User, asAdmin = false) { renamingUser.value = user; renameName.value = user.originalName; renameAsAdmin.value = asAdmin; error.value = ''; modal.value = 'rename' }
+async function saveRename() {
+  busy.value = true; error.value = ''
+  try {
+    const result = await api<{ user: User }>(renameAsAdmin.value ? `/admin/users/${renamingUser.value!.id}` : '/identity', 'PUT', { name: renameName.value.trim() })
+    requestNumber++; identityRequestNumber++; usersRequestNumber++
+    if (currentUser.value?.id === result.user.id) { currentUser.value = result.user; rememberIdentity() }
+    data.value.users = data.value.users.map(user => user.id === result.user.id ? result.user : user)
+    adminUsers.value = adminUsers.value.map(user => user.id === result.user.id ? result.user : user)
+    modal.value = null; await refresh()
+  } catch (cause) { message(cause) } finally { busy.value = false }
+}
 async function addUser() {
   busy.value = true; error.value = ''
   try {
@@ -151,6 +173,7 @@ async function pageLogs(amount: number) { logPage.value += amount; await loadLog
 const time = (value: string) => new Intl.DateTimeFormat('zh-CN', { timeZone: 'Asia/Shanghai', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }).format(new Date(value))
 function describeLog(log: Log) {
   if (log.action === 'user.create') return `添加了用户 ${log.targetName}`
+  if (log.action === 'user.rename') return `将 ${log.before?.displayName} 改名为 ${log.after?.displayName}`
   if (log.action === 'user.disable') return `停用了 ${log.targetName}，删除 ${log.after?.futureCount ?? 0} 条未来排班${log.after?.firstDate ? `（${log.after.firstDate} 至 ${log.after.lastDate}）` : ''}`
   return `${log.targetName} · ${log.date} · ${shiftLabel(log.before as unknown as Schedule)} → ${shiftLabel(log.after as unknown as Schedule)}`
 }
@@ -162,7 +185,7 @@ async function refreshHolidays() { busy.value = true; try { await api(`/admin/ho
       <div><h1>{{ data.homeTitle || '团队排班' }}</h1><span v-if="!connected" class="muted">正在连接…</span></div>
       <button v-if="admin" class="text-button" @click="logoutAdmin">退出管理</button>
     </header>
-    <div v-if="currentUser && !admin" class="identity-toolbar"><span class="welcome"><span class="welcome-label">欢迎</span><span class="welcome-name" :style="{ background: userBackground(currentUser) }">{{ currentUser.displayName }}</span></span><label v-if="tab === 'calendar'" class="mine-filter"><input :checked="filterMine" type="checkbox" @change="onlyMine = ($event.target as HTMLInputElement).checked">只看我的</label></div>
+    <div v-if="currentUser && !admin" class="identity-toolbar"><span class="welcome"><span class="welcome-label">欢迎</span><button class="welcome-name" :style="{ background: userBackground(currentUser) }" :aria-label="`修改我的名称：${currentUser.displayName}`" aria-haspopup="dialog" :disabled="busy" @click="openRename(currentUser)">{{ currentUser.displayName }}</button></span><label v-if="tab === 'calendar'" class="mine-filter"><input :checked="filterMine" type="checkbox" @change="onlyMine = ($event.target as HTMLInputElement).checked">只看我的</label></div>
     <nav v-if="admin" class="admin-tabs" aria-label="管理功能"><span class="mode-tag">管理模式</span><button v-for="item in [{ id: 'calendar', label: '排班日历' }, { id: 'users', label: '用户管理' }, { id: 'logs', label: '操作日志' }, { id: 'settings', label: '首页设置' }]" :key="item.id" :class="{ active: tab === item.id }" @click="changeTab(item.id)">{{ item.label }}</button></nav>
     <template v-if="tab === 'calendar'">
       <div class="month-navigation"><button class="icon-button" aria-label="上个月" @click="moveMonth(-1)">‹</button><button class="month-title" @click="pickedMonth = month; modal = 'month'"><span>{{ month.slice(0, 4) }} 年</span><strong>{{ Number(month.slice(5)) }} 月</strong></button><button class="icon-button" aria-label="下个月" @click="moveMonth(1)">›</button><button class="text-button current-month" @click="loadMonth(shanghaiToday().slice(0, 7))">回到本月</button></div>
@@ -179,7 +202,7 @@ async function refreshHolidays() { busy.value = true; try { await api(`/admin/ho
       </div>
       <footer class="calendar-footer"><span><i class="legend-self"></i>我的上班</span><span><i class="overtime-badge">加</i>我的加班</span><span class="muted">点击日期查看详情</span><span class="version">v{{ version }}</span></footer>
     </template>
-    <section v-if="admin && tab === 'users'" class="management"><h2>用户管理</h2><form class="inline-form" @submit.prevent="addUser"><label class="field">姓名<input v-model="newName" maxlength="10" placeholder="1–10 个中文或英文字母" required></label><button class="primary" :disabled="busy">添加用户</button></form><ul class="user-list"><li v-for="user in adminUsers" :key="user.id"><span><i class="dot" :style="{ background: user.color }"></i>{{ user.displayName }}<small v-if="user.disabledAt" class="muted">已停用</small></span><button v-if="!user.disabledAt" class="danger" :disabled="busy" @click="disableUser(user)">停用</button></li></ul></section>
+    <section v-if="admin && tab === 'users'" class="management"><h2>用户管理</h2><form class="inline-form" @submit.prevent="addUser"><label class="field">姓名<input v-model="newName" maxlength="10" placeholder="1–10 个中文或英文字母" required></label><button class="primary" :disabled="busy">添加用户</button></form><ul class="user-list"><li v-for="user in adminUsers" :key="user.id"><span><i class="dot" :style="{ background: user.color }"></i>{{ user.displayName }}<small v-if="user.disabledAt" class="muted">已停用</small></span><div class="user-actions"><button :disabled="busy" :aria-label="`修改名称：${user.displayName}`" @click="openRename(user, true)">改名</button><button v-if="!user.disabledAt" class="danger" :disabled="busy" @click="disableUser(user)">停用</button></div></li></ul></section>
     <section v-if="admin && tab === 'logs'" class="management"><h2>操作日志</h2><label class="field">查询日期<input v-model="logDate" type="date" required></label><p class="muted">按上海时间显示，最近操作在前。</p><ol class="log-list"><li v-for="log in logData.logs" :key="log.id"><strong>{{ log.actorName }} · {{ time(log.occurredAt) }}</strong><p>{{ describeLog(log) }}</p></li></ol><p v-if="!logData.logs.length" class="muted">当天暂无操作记录</p><div class="pagination"><button :disabled="logPage === 1" @click="pageLogs(-1)">上一页</button><span>{{ logPage }} / {{ Math.max(1, Math.ceil(logData.total / logData.pageSize)) }}</span><button :disabled="logPage * logData.pageSize >= logData.total" @click="pageLogs(1)">下一页</button></div></section>
     <section v-if="admin && tab === 'settings'" class="management"><h2>首页设置</h2><form class="identity-form" @submit.prevent="saveSettings"><label class="field">首页左侧标题<input v-model="homeTitle" placeholder="团队排班" required :disabled="busy"></label><p class="muted">1–40 个字，保存后对所有人显示。</p><button class="primary" :disabled="busy">{{ busy ? '保存中…' : '保存标题' }}</button></form><p v-if="settingsNotice" class="notice" role="status">{{ settingsNotice }}</p></section>
     <div v-if="error && !modal" class="error global-error" role="alert">{{ error }} <button class="text-button" @click="refresh">重试</button></div>
@@ -189,6 +212,11 @@ async function refreshHolidays() { busy.value = true; try { await api(`/admin/ho
     <p class="muted">输入姓名，新设备可认领已有成员。</p>
     <form v-if="candidates === null" class="identity-form" @submit.prevent="findIdentity"><label class="field">姓名<input v-model="name" maxlength="10" placeholder="1–10 个中文或英文字母" autocomplete="name" required :disabled="busy"></label><button class="primary" :disabled="busy">{{ busy ? '正在确认…' : '继续' }}</button></form>
     <div v-else><p>已有同名成员，请确认：</p><ul class="candidate-list"><li v-for="user in candidates" :key="user.id"><span><i class="dot" :style="{ background: user.color }"></i>{{ user.displayName }}</span><button :disabled="busy" @click="establishIdentity(user.id)">这是我</button></li></ul><div class="actions"><button class="primary" :disabled="busy" @click="establishIdentity()">创建另一位同名用户</button><button :disabled="busy" @click="candidates = null">返回</button></div></div>
+    <p v-if="error" class="error" role="alert">{{ error }}</p>
+  </Modal>
+  <Modal v-if="modal === 'rename'" :title="renameAsAdmin ? '修改用户名称' : '修改我的名称'" :can-close="!busy" @close="closeModal">
+    <p class="muted"><template v-if="renameAsAdmin">正在修改：{{ renamingUser?.displayName }}。 </template>同名时自动添加数字后缀。</p>
+    <form class="identity-form" @submit.prevent="saveRename"><label class="field">姓名<input v-model="renameName" maxlength="10" placeholder="1–10 个中文或英文字母" autocomplete="name" required :disabled="busy"></label><div class="actions"><button class="primary" :disabled="busy">{{ busy ? '保存中…' : '保存名称' }}</button><button type="button" :disabled="busy" @click="closeModal">取消</button></div></form>
     <p v-if="error" class="error" role="alert">{{ error }}</p>
   </Modal>
   <Modal v-if="modal === 'admin'" title="管理员登录" @close="closeModal"><form class="identity-form" @submit.prevent="loginAdmin"><label class="field">管理员密码<input v-model="password" type="password" minlength="6" autocomplete="current-password" required :disabled="busy"></label><button class="primary" :disabled="busy">{{ busy ? '登录中…' : '进入管理' }}</button></form><p v-if="error" class="error" role="alert">{{ error }}</p></Modal>

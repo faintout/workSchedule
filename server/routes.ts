@@ -36,8 +36,31 @@ export async function registerCoreRoutes(app: FastifyInstance, options: CoreOpti
       ? { role: 'admin', name: current.user ? `管理员（当前身份：${current.user.displayName}）` : '管理员' }
       : { role: 'member', name: current.user!.displayName };
   };
+  const renameUser = (request: FastifyRequest, id: string) => {
+    const { name, key } = normalizeName(body(request).name);
+    const operator = actor(request);
+    const user = transaction(db, () => {
+      const row = db.prepare('SELECT * FROM users WHERE id = ?').get(id);
+      if (!row) fail(404, '用户不存在');
+      const previous = userFromRow(row);
+      if (previous.originalName === name) return previous;
+      let suffix = row.normalized_name === key ? Number(row.suffix) : 0;
+      while (db.prepare('SELECT 1 FROM users WHERE normalized_display_name = ? AND id != ?').get(key + (suffix || ''), id)) suffix++;
+      db.prepare(`UPDATE users SET original_name = ?, normalized_name = ?, display_name = ?, normalized_display_name = ?, suffix = ? WHERE id = ?`)
+        .run(name, key, name + (suffix || ''), key + (suffix || ''), suffix, id);
+      const updated = getUser(db, id)!;
+      logOperation(db, operator, 'user.rename', updated, null, previous, updated, now());
+      return updated;
+    });
+    return { user };
+  };
 
   app.get('/api/session', async request => identity(request));
+  app.put('/api/identity', async request => {
+    const current = identity(request);
+    if (!current.user) fail(401, '请先确认姓名');
+    return renameUser(request, current.user.id);
+  });
   app.post('/api/identity/candidates', async request => {
     const { key } = normalizeName(body(request).name);
     return { users: db.prepare('SELECT * FROM users WHERE normalized_name = ? AND disabled_at IS NULL ORDER BY registration_sequence').all(key).map(userFromRow) };
@@ -165,6 +188,10 @@ export async function registerCoreRoutes(app: FastifyInstance, options: CoreOpti
       return created;
     });
     return { user };
+  });
+  app.put<{ Params: { id: string } }>('/api/admin/users/:id', async request => {
+    admin(request);
+    return renameUser(request, request.params.id);
   });
   const deletionPreview = (id: string) => {
     if (!getUser(db, id)) fail(404, '用户不存在');
