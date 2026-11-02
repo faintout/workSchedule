@@ -10,7 +10,7 @@ export interface User {
 export interface Schedule {
   userId: string
   date: string
-  normalShift: 'none' | 'morning' | 'afternoon' | 'full'
+  normalShift: 'none' | 'morning' | 'afternoon' | 'full' | 'rest'
   overtime: boolean
   version: number
 }
@@ -52,7 +52,7 @@ export function contiguousBlocks(schedule: Schedule) {
 }
 export function shiftLabel(schedule?: Pick<Schedule, 'normalShift' | 'overtime'> | null) {
   if (!schedule) return '无排班'
-  const normal = { none: '', morning: '上午', afternoon: '下午', full: '全天' }[schedule.normalShift]
+  const normal = { none: '', morning: '上午', afternoon: '下午', full: '全天', rest: '休班' }[schedule.normalShift]
   return [normal, schedule.overtime ? '加班' : ''].filter(Boolean).join(' + ') || '无排班'
 }
 export function avatarLayout(count: number, width: number, height: number) {

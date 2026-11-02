@@ -145,7 +145,8 @@ export async function registerCoreRoutes(app: FastifyInstance, options: CoreOpti
     }
     const normalShift = remove ? 'none' : input.normalShift;
     const overtime = remove ? false : input.overtime;
-    if (!['none', 'morning', 'afternoon', 'full'].includes(normalShift as string) || typeof overtime !== 'boolean') fail(400, '请选择有效时段');
+    if (!['none', 'morning', 'afternoon', 'full', 'rest'].includes(normalShift as string) || typeof overtime !== 'boolean') fail(400, '请选择有效排班');
+    if (normalShift === 'rest' && overtime) fail(400, '休班不能同时选择加班');
     return transaction(db, () => {
       const target = getUser(db, userId);
       if (!target) fail(404, '用户不存在');

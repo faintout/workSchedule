@@ -1,6 +1,6 @@
 export const COLORS = ['#5660F5', '#258856', '#227AAB', '#8853BF', '#B84778', '#17847B', '#5264AB', '#778A31', '#AF7237', '#536176'];
 
-export type NormalShift = 'none' | 'morning' | 'afternoon' | 'full';
+export type NormalShift = 'none' | 'morning' | 'afternoon' | 'full' | 'rest';
 export interface User {
   id: string;
   originalName: string;

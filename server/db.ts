@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { dirname, join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { passwordHash } from './auth.js';
 import { COLORS, type Schedule, type User } from './types.js';
@@ -23,7 +23,7 @@ export function createDatabase(path: string, initialAdminPassword?: string): Dat
   try {
     db.exec('PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000;');
     const version = Number(db.prepare('PRAGMA user_version').get()!.user_version);
-    if (version > 1) throw new Error('数据库版本高于当前应用，请使用新版应用');
+    if (version > 2) throw new Error('数据库版本高于当前应用，请使用新版应用');
     if (version === 0) transaction(db, () => {
       db.exec(`
         CREATE TABLE users (
@@ -35,10 +35,10 @@ export function createDatabase(path: string, initialAdminPassword?: string): Dat
         CREATE INDEX users_name ON users(normalized_name);
         CREATE TABLE schedules (
           user_id TEXT NOT NULL REFERENCES users(id), date TEXT NOT NULL,
-          normal_shift TEXT NOT NULL CHECK(normal_shift IN ('none','morning','afternoon','full')),
+          normal_shift TEXT NOT NULL CHECK(normal_shift IN ('none','morning','afternoon','full','rest')),
           overtime INTEGER NOT NULL CHECK(overtime IN (0,1)), version INTEGER NOT NULL,
           created_at TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(user_id,date),
-          CHECK(normal_shift != 'none' OR overtime = 1)
+          CHECK(normal_shift != 'none' OR overtime = 1), CHECK(normal_shift != 'rest' OR overtime = 0)
         );
         CREATE INDEX schedules_date ON schedules(date);
         CREATE TABLE sessions (
@@ -54,9 +54,33 @@ export function createDatabase(path: string, initialAdminPassword?: string): Dat
         CREATE INDEX operation_logs_time ON operation_logs(occurred_at DESC,id DESC);
         CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
         INSERT INTO settings(key,value) VALUES ('next_registration_sequence','1'),('next_schedule_version','1');
-        PRAGMA user_version = 1;
+        PRAGMA user_version = 2;
       `);
     });
+    if (version === 1) {
+      if (path !== ':memory:') {
+        const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+        const destination = join(dirname(path), 'backups', `schedule-before-v2-${stamp}.sqlite`);
+        mkdirSync(dirname(destination), { recursive: true });
+        db.prepare('VACUUM INTO ?').run(destination);
+      }
+      transaction(db, () => {
+        db.exec(`
+          CREATE TABLE schedules_v2 (
+            user_id TEXT NOT NULL REFERENCES users(id), date TEXT NOT NULL,
+            normal_shift TEXT NOT NULL CHECK(normal_shift IN ('none','morning','afternoon','full','rest')),
+            overtime INTEGER NOT NULL CHECK(overtime IN (0,1)), version INTEGER NOT NULL,
+            created_at TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(user_id,date),
+            CHECK(normal_shift != 'none' OR overtime = 1), CHECK(normal_shift != 'rest' OR overtime = 0)
+          );
+          INSERT INTO schedules_v2 SELECT * FROM schedules;
+          DROP TABLE schedules;
+          ALTER TABLE schedules_v2 RENAME TO schedules;
+          CREATE INDEX schedules_date ON schedules(date);
+          PRAGMA user_version = 2;
+        `);
+      });
+    }
     if (!db.prepare("SELECT value FROM settings WHERE key = 'admin_password_hash'").get()) {
       if (!initialAdminPassword || initialAdminPassword.length < 6 || initialAdminPassword.length > 256) {
         throw new Error('首次启动必须设置 ADMIN_PASSWORD，长度为 6–256 个字符');

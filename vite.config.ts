@@ -6,5 +6,5 @@ export default defineConfig({
   plugins: [vue()],
   define: { __APP_VERSION__: JSON.stringify(version) },
   build: { outDir: 'dist/web', target: 'safari14', cssTarget: 'safari14' },
-  server: { proxy: { '/api': 'http://127.0.0.1:3000' } },
+  server: { proxy: { '/api': { target: 'http://127.0.0.1:3000', changeOrigin: false } } },
 })
