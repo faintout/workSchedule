@@ -112,6 +112,11 @@ export async function registerCoreRoutes(app: FastifyInstance, options: CoreOpti
     return { ok: true };
   });
 
+  const publicSettings = () => ({
+    homeTitle: String(db.prepare("SELECT value FROM settings WHERE key = 'home_title'").get()?.value ?? '团队排班'),
+    defaultDisplayMode: String(db.prepare("SELECT value FROM settings WHERE key = 'default_display_mode'").get()?.value ?? 'normal'),
+    syncIntervalMinutes: Number(db.prepare("SELECT value FROM settings WHERE key = 'sync_interval_minutes'").get()?.value ?? 0.5),
+  });
   app.get<{ Querystring: { month?: string } }>('/api/month', async request => {
     const month = request.query.month;
     if (typeof month !== 'string' || !isDate(`${month}-01`)) fail(400, '请选择有效月份');
@@ -121,17 +126,33 @@ export async function registerCoreRoutes(app: FastifyInstance, options: CoreOpti
       (SELECT user_id FROM schedules WHERE date >= ? AND date <= ?) ORDER BY registration_sequence`)
       .all(`${month}-01`, `${month}-31`).map(userFromRow);
     const holidays = options.getHolidays ? await options.getHolidays(month) : {};
-    const homeTitle = String(db.prepare("SELECT value FROM settings WHERE key = 'home_title'").get()?.value ?? '团队排班');
-    return { users, schedules, homeTitle, ...(holidays as object) };
+    return { users, schedules, ...publicSettings(), ...(holidays as object) };
   });
   app.put('/api/admin/settings', async request => {
     admin(request);
-    const value = body(request).homeTitle;
+    const input = body(request);
+    const value = input.homeTitle;
+    const defaultDisplayMode = input.defaultDisplayMode;
+    const syncIntervalMinutes = input.syncIntervalMinutes;
     if (typeof value !== 'string') fail(400, '首页标题需为 1–40 个字符');
     const homeTitle = value.trim();
     if (!homeTitle || Array.from(homeTitle).length > 40) fail(400, '首页标题需为 1–40 个字符');
-    db.prepare("INSERT INTO settings(key,value) VALUES ('home_title',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(homeTitle);
-    return { homeTitle };
+    if (defaultDisplayMode !== undefined && (typeof defaultDisplayMode !== 'string' || !['normal', 'horizontal', 'vertical', 'grouped'].includes(defaultDisplayMode))) {
+      fail(400, '请选择有效的默认展示方式');
+    }
+    if (syncIntervalMinutes !== undefined && (typeof syncIntervalMinutes !== 'number' || !Number.isFinite(syncIntervalMinutes)
+      || syncIntervalMinutes * 60_000 < 1 || syncIntervalMinutes * 60_000 > 2_147_483_647)) {
+      fail(400, '同步间隔需为正数分钟，数值不能过小或过大');
+    }
+    return transaction(db, () => {
+      const previous = publicSettings();
+      const settings = { homeTitle, defaultDisplayMode: defaultDisplayMode ?? previous.defaultDisplayMode, syncIntervalMinutes: syncIntervalMinutes ?? previous.syncIntervalMinutes };
+      const save = db.prepare('INSERT INTO settings(key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value');
+      save.run('home_title', settings.homeTitle);
+      save.run('default_display_mode', settings.defaultDisplayMode);
+      save.run('sync_interval_minutes', String(settings.syncIntervalMinutes));
+      return settings;
+    });
   });
 
   const writeSchedule = (request: FastifyRequest<{ Params: { userId: string; date: string } }>, remove: boolean) => {

@@ -82,6 +82,12 @@ h2{font-size:16px;line-height:1.4;font-weight:600}
 .horizontal-details .detail-person::before{content:"";position:absolute;left:0;right:0;bottom:0;height:4px;background:var(--orange)}
 .horizontal-details .detail-person:nth-child(odd):not(:last-child)::before{right:-2px}
 .horizontal-details .rest .detail-person::before{background:var(--green)}
+.grouped-details .day-group{display:block;padding:2px 0 3px;border-radius:4px;background:#e7eefb}
+.grouped-details .day-group.rest{background:#f0eaf8}
+.grouped-details .day-group::before{display:none}
+.grouped-details .detail-avatars{margin:0 2px}
+.day-group-label{display:block;margin:0 2px 3px;font-size:10px;line-height:14px;font-weight:500;color:#395779}
+.rest .day-group-label{color:#765695}
 .calendar-footer{display:flex;align-items:center;flex-wrap:wrap;min-height:24px;padding-top:4px;font-size:10px;color:var(--muted)}
 .calendar-footer>span{display:flex;align-items:center;margin-right:10px;margin-bottom:6px;white-space:nowrap}
 .calendar-footer>span>i{margin-right:4px}
