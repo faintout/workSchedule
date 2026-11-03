@@ -78,10 +78,10 @@ h2{font-size:16px;line-height:1.4;font-weight:600}
 .detail-avatars .avatar{width:14px;height:14px;max-width:100%;font-size:9px}
 .horizontal-details .day-group::before{display:none}
 .horizontal-details .detail-avatars{margin:0 2px}
-.horizontal-details .detail-person::before{content:"";position:absolute;left:0;right:0;bottom:0;height:40%;background:var(--orange)}
+.horizontal-details .detail-person{padding-bottom:6px}
+.horizontal-details .detail-person::before{content:"";position:absolute;left:0;right:0;bottom:0;height:4px;background:var(--orange)}
 .horizontal-details .detail-person:nth-child(odd):not(:last-child)::before{right:-2px}
 .horizontal-details .rest .detail-person::before{background:var(--green)}
-.horizontal-details .avatar{position:relative}
 .calendar-footer{display:flex;align-items:center;flex-wrap:wrap;min-height:24px;padding-top:4px;font-size:10px;color:var(--muted)}
 .calendar-footer>span{display:flex;align-items:center;margin-right:10px;margin-bottom:6px;white-space:nowrap}
 .calendar-footer>span>i{margin-right:4px}
