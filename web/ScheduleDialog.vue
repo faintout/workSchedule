@@ -22,7 +22,7 @@ const entries = computed(() => editing.value ? frozen.value : sortedSchedules(pr
 const workingEntries = computed(() => entries.value.filter(entry => entry.normalShift !== 'rest'))
 const restEntries = computed(() => entries.value.filter(entry => entry.normalShift === 'rest'))
 const userMap = computed(() => new Map(props.users.map(user => [user.id, user])))
-const detailUsers = computed(() => workingEntries.value.map(entry => userMap.value.get(entry.userId)!))
+const detailUsers = computed(() => entries.value.map(entry => userMap.value.get(entry.userId)!))
 const activeUsers = computed(() => props.users.filter(user => !user.deletedAt))
 const editedUser = computed(() => userMap.value.get(editingUserId.value))
 const emptySelection = computed(() => !checks.value.some(Boolean))

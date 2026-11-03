@@ -22,8 +22,8 @@ if (Number(db.prepare('SELECT COUNT(*) AS count FROM users').get()!.count) === 0
     assert.equal(registration.statusCode, 200, registration.body);
     const user = registration.json().user;
     const cookie = String(registration.headers['set-cookie']).split(';')[0];
-    for (const day of ['02', '26', ...(index < 7 ? ['03'] : []), ...(index < 8 ? ['04'] : []), ...(index === 0 ? ['06'] : [])]) {
-      const [normalShift, overtime] = day === '06' ? ['full', false] : index === 4 || index === 5 ? ['none', true] : shifts[index % shifts.length]!;
+    for (const day of ['02', '26', ...(index < 7 ? ['03'] : []), ...(index < 8 ? ['04'] : []), ...(index === 0 ? ['06', '08'] : []), ...(index < 6 ? ['07'] : [])]) {
+      const [normalShift, overtime] = day === '08' || day === '07' && index >= 3 ? ['rest', false] : day === '06' ? ['full', false] : index === 4 || index === 5 ? ['none', true] : shifts[index % shifts.length]!;
       const saved = await app.inject({ method: 'PUT', url: `/api/schedules/${user.id}/${month}-${day}`, headers: { cookie }, payload: { normalShift, overtime, version: null } });
       assert.equal(saved.statusCode, 200, saved.body);
     }
