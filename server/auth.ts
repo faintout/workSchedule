@@ -51,7 +51,7 @@ export function getIdentity(db: DatabaseSync, request: FastifyRequest, now = new
   };
   const session = find('member');
   const candidate = session ? getUser(db, String(session.user_id)) : null;
-  return { user: candidate && !candidate.disabledAt ? candidate : null, admin: Boolean(find('admin')) };
+  return { user: candidate && !candidate.deletedAt ? candidate : null, admin: Boolean(find('admin')) };
 }
 
 export function requireAdmin(db: DatabaseSync, request: FastifyRequest, now = new Date()) {

@@ -41,7 +41,7 @@ export async function registerCoreRoutes(app: FastifyInstance, options: CoreOpti
     const operator = actor(request);
     const user = transaction(db, () => {
       const row = db.prepare('SELECT * FROM users WHERE id = ?').get(id);
-      if (!row) fail(404, '用户不存在');
+      if (!row || row.deleted_at != null) fail(404, '用户不存在');
       const previous = userFromRow(row);
       if (previous.originalName === name) return previous;
       let suffix = row.normalized_name === key ? Number(row.suffix) : 0;
@@ -63,7 +63,7 @@ export async function registerCoreRoutes(app: FastifyInstance, options: CoreOpti
   });
   app.post('/api/identity/candidates', async request => {
     const { key } = normalizeName(body(request).name);
-    return { users: db.prepare('SELECT * FROM users WHERE normalized_name = ? AND disabled_at IS NULL ORDER BY registration_sequence').all(key).map(userFromRow) };
+    return { users: db.prepare('SELECT * FROM users WHERE normalized_name = ? AND deleted_at IS NULL ORDER BY registration_sequence').all(key).map(userFromRow) };
   });
   app.post('/api/identity', async (request, reply) => {
     const input = body(request);
@@ -71,7 +71,7 @@ export async function registerCoreRoutes(app: FastifyInstance, options: CoreOpti
     const user = transaction(db, () => {
       if (input.userId !== undefined) {
         if (typeof input.userId !== 'string') fail(400, '请选择要认领的用户');
-        const row = db.prepare('SELECT * FROM users WHERE id = ? AND normalized_name = ? AND disabled_at IS NULL').get(input.userId, key);
+        const row = db.prepare('SELECT * FROM users WHERE id = ? AND normalized_name = ? AND deleted_at IS NULL').get(input.userId, key);
         if (!row) fail(404, '该身份不可认领，请重新选择');
         return userFromRow(row);
       }
@@ -117,7 +117,7 @@ export async function registerCoreRoutes(app: FastifyInstance, options: CoreOpti
     if (typeof month !== 'string' || !isDate(`${month}-01`)) fail(400, '请选择有效月份');
     const schedules = db.prepare('SELECT * FROM schedules WHERE date >= ? AND date <= ? ORDER BY date,user_id')
       .all(`${month}-01`, `${month}-31`).map(scheduleFromRow);
-    const users = db.prepare(`SELECT * FROM users WHERE disabled_at IS NULL OR id IN
+    const users = db.prepare(`SELECT * FROM users WHERE deleted_at IS NULL OR id IN
       (SELECT user_id FROM schedules WHERE date >= ? AND date <= ?) ORDER BY registration_sequence`)
       .all(`${month}-01`, `${month}-31`).map(userFromRow);
     const holidays = options.getHolidays ? await options.getHolidays(month) : {};
@@ -153,8 +153,8 @@ export async function registerCoreRoutes(app: FastifyInstance, options: CoreOpti
       const previous = getSchedule(db, userId, date);
       if ((previous?.version ?? null) !== input.version) fail(409, '排班已被其他人修改，请重新加载后再保存');
       const clearing = normalShift === 'none' && !overtime;
-      if (target.disabledAt && !previous && !clearing) fail(400, '已停用用户不能新增排班');
-      if (target.disabledAt && date > shanghaiDate(now())) fail(400, '已停用用户不能新增未来排班');
+      if (target.deletedAt && !previous && !clearing) fail(400, '已删除用户不能新增排班');
+      if (target.deletedAt && date > shanghaiDate(now())) fail(400, '已删除用户不能新增未来排班');
       if (clearing) {
         if (previous) {
           db.prepare('DELETE FROM schedules WHERE user_id = ? AND date = ?').run(userId, date);
@@ -178,7 +178,7 @@ export async function registerCoreRoutes(app: FastifyInstance, options: CoreOpti
 
   app.get('/api/admin/users', async request => {
     admin(request);
-    return { users: db.prepare('SELECT * FROM users ORDER BY registration_sequence').all().map(userFromRow) };
+    return { users: db.prepare('SELECT * FROM users WHERE deleted_at IS NULL ORDER BY registration_sequence').all().map(userFromRow) };
   });
   app.post('/api/admin/users', async request => {
     admin(request);
@@ -195,7 +195,8 @@ export async function registerCoreRoutes(app: FastifyInstance, options: CoreOpti
     return renameUser(request, request.params.id);
   });
   const deletionPreview = (id: string) => {
-    if (!getUser(db, id)) fail(404, '用户不存在');
+    const target = getUser(db, id);
+    if (!target || target.deletedAt) fail(404, '用户不存在');
     const result = db.prepare('SELECT COUNT(*) AS count,MIN(date) AS first_date,MAX(date) AS last_date FROM schedules WHERE user_id = ? AND date > ?').get(id, shanghaiDate(now()))!;
     return { futureCount: Number(result.count), firstDate: result.first_date ?? null, lastDate: result.last_date ?? null };
   };
@@ -209,13 +210,16 @@ export async function registerCoreRoutes(app: FastifyInstance, options: CoreOpti
     return transaction(db, () => {
       const target = getUser(db, request.params.id);
       if (!target) fail(404, '用户不存在');
-      if (target.disabledAt) fail(400, '用户已经停用');
+      if (target.deletedAt) fail(400, '用户已经删除');
       const preview = deletionPreview(target.id);
       const timestamp = now();
-      db.prepare('UPDATE users SET disabled_at = ? WHERE id = ?').run(timestamp.toISOString(), target.id);
+      db.prepare('UPDATE users SET deleted_at = ? WHERE id = ?').run(timestamp.toISOString(), target.id);
+      const releasedColors: number[] = JSON.parse(String(db.prepare("SELECT value FROM settings WHERE key = 'released_color_indexes'").get()!.value));
+      releasedColors.push(target.colorIndex);
+      db.prepare("UPDATE settings SET value = ? WHERE key = 'released_color_indexes'").run(JSON.stringify(releasedColors));
       db.prepare('DELETE FROM schedules WHERE user_id = ? AND date > ?').run(target.id, shanghaiDate(timestamp));
       db.prepare('DELETE FROM sessions WHERE user_id = ?').run(target.id);
-      logOperation(db, operator, 'user.disable', target, null, target, { ...getUser(db, target.id), ...preview }, timestamp);
+      logOperation(db, operator, 'user.delete', target, null, target, { ...getUser(db, target.id), ...preview }, timestamp);
       return preview;
     });
   });

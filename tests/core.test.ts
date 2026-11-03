@@ -177,7 +177,7 @@ test('concurrent member/admin updates conflict and deletion/recreation never reu
   assert.equal((await write(app, person.user.id, first.date, adminCookie, 'full', false, updated.version)).statusCode, 409);
 });
 
-test('deactivation preserves Shanghai today/history, removes future atomically, revokes claims and retains snapshots', async t => {
+test('soft deletion hides users, preserves Shanghai today/history, removes future atomically and revokes claims', async t => {
   const { app, db } = await setup();
   t.after(() => app.close());
   const person = await member(app);
@@ -185,13 +185,17 @@ test('deactivation preserves Shanghai today/history, removes future atomically, 
   for (const date of ['2026-11-01', '2026-11-02', '2026-11-03']) await write(app, person.user.id, date, person.cookie);
   const preview = await app.inject({ url: `/api/admin/users/${person.user.id}/deletion-preview`, headers: { cookie: adminCookie } });
   assert.deepEqual(preview.json(), { futureCount: 1, firstDate: '2026-11-03', lastDate: '2026-11-03' });
-  const disabled = await app.inject({ method: 'DELETE', url: `/api/admin/users/${person.user.id}`, headers: { cookie: `${person.cookie}; ${adminCookie}` } });
-  assert.equal(disabled.statusCode, 200, disabled.body);
+  const deleted = await app.inject({ method: 'DELETE', url: `/api/admin/users/${person.user.id}`, headers: { cookie: `${person.cookie}; ${adminCookie}` } });
+  assert.equal(deleted.statusCode, 200, deleted.body);
+  const retained = db.prepare('SELECT * FROM users WHERE id = ?').get(person.user.id)!;
+  assert.equal(retained.deleted_at, '2026-11-01T16:00:00.000Z');
+  assert.equal(retained.color_index, person.user.colorIndex);
+  assert.deepEqual((await app.inject({ url: '/api/admin/users', headers: { cookie: adminCookie } })).json().users, []);
   assert.equal((await app.inject({ url: '/api/session', headers: { cookie: person.cookie } })).json().user, null);
   assert.equal((await app.inject({ method: 'POST', url: '/api/identity', payload: { name: '张三', userId: person.user.id } })).statusCode, 404);
   const month = (await app.inject({ url: '/api/month?month=2026-11', headers: { cookie: adminCookie } })).json();
   assert.deepEqual(month.schedules.map((schedule: { date: string }) => schedule.date), ['2026-11-01', '2026-11-02']);
-  assert.ok(month.users[0].disabledAt);
+  assert.equal(month.users[0].deletedAt, retained.deleted_at);
   const historical = month.schedules[0];
   assert.equal((await write(app, person.user.id, historical.date, adminCookie, 'morning', false, historical.version)).statusCode, 200);
   assert.equal((await write(app, person.user.id, '2026-10-31', adminCookie)).statusCode, 400);
@@ -200,10 +204,11 @@ test('deactivation preserves Shanghai today/history, removes future atomically, 
   assert.equal(replacement.user.displayName, '张三1');
   assert.equal(replacement.user.registrationSequence, 2);
   const logs = (await app.inject({ url: '/api/admin/logs?date=2026-11-02', headers: { cookie: adminCookie } })).json().logs;
-  const disabledLog = logs.find((log: { action: string }) => log.action === 'user.disable');
-  assert.match(disabledLog.actorName, /当前身份：张三/);
-  assert.equal(disabledLog.targetName, '张三');
-  assert.equal(disabledLog.after.futureCount, 1);
+  const deletedLog = logs.find((log: { action: string }) => log.action === 'user.delete');
+  assert.match(deletedLog.actorName, /当前身份：张三/);
+  assert.equal(deletedLog.targetName, '张三');
+  assert.equal(deletedLog.after.futureCount, 1);
+  assert.equal(deletedLog.after.deletedAt, retained.deleted_at);
   assert.equal(db.prepare('SELECT COUNT(*) AS count FROM sessions WHERE user_id=?').get(person.user.id)!.count, 0);
 });
 

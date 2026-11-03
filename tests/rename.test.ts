@@ -113,7 +113,7 @@ test('self rename synchronizes stored fields, existing sessions, claims and mont
   assert.deepEqual(JSON.parse(String(log.after_value)), updated);
 });
 
-test('rename uses case insensitive suffixes, preserves suffixes for unchanged names and allows administrators to rename disabled users', async t => {
+test('rename uses case insensitive suffixes, preserves suffixes for unchanged names and rejects deleted users', async t => {
   const { app, db } = await setup();
   t.after(() => app.close());
   const first = await member(app, 'Alice');
@@ -134,18 +134,21 @@ test('rename uses case insensitive suffixes, preserves suffixes for unchanged na
   const casing = await rename(app, duplicate.cookie, 'ALICE');
   assert.equal(casing.statusCode, 200, casing.body);
   assert.equal(casing.json().user.displayName, 'ALICE1');
-  const disabled = await app.inject({ method: 'DELETE', url: `/api/admin/users/${first.user.id}`, headers: { cookie: adminCookie } });
-  assert.equal(disabled.statusCode, 200, disabled.body);
-  assert.equal((await rename(app, first.cookie, '无权限')).statusCode, 401);
-  const disabledAt = db.prepare('SELECT disabled_at FROM users WHERE id = ?').get(first.user.id)!.disabled_at;
   const renamed = await rename(app, `${duplicate.cookie}; ${adminCookie}`, '李四', first.user.id);
   assert.equal(renamed.statusCode, 200, renamed.body);
   assert.equal(renamed.json().user.displayName, '李四');
-  assert.equal(renamed.json().user.disabledAt, disabledAt);
-  assert.deepEqual(await candidates(app, '李四'), []);
   const log = db.prepare('SELECT * FROM operation_logs ORDER BY id DESC LIMIT 1').get()!;
   assert.equal(log.actor_role, 'admin');
   assert.equal(log.actor_name, '管理员（当前身份：ALICE1）');
+  const deleted = await app.inject({ method: 'DELETE', url: `/api/admin/users/${first.user.id}`, headers: { cookie: adminCookie } });
+  assert.equal(deleted.statusCode, 200, deleted.body);
+  assert.equal((await rename(app, first.cookie, '无权限')).statusCode, 401);
+  const row = db.prepare('SELECT * FROM users WHERE id = ?').get(first.user.id);
+  const logs = db.prepare('SELECT * FROM operation_logs ORDER BY id').all();
+  assert.equal((await rename(app, adminCookie, '王五', first.user.id)).statusCode, 404);
+  assert.deepEqual(db.prepare('SELECT * FROM users WHERE id = ?').get(first.user.id), row);
+  assert.deepEqual(db.prepare('SELECT * FROM operation_logs ORDER BY id').all(), logs);
+  assert.deepEqual(await candidates(app, '李四'), []);
 });
 
 test('rename and operation log commit together and rollback leaves the prior identity usable', async t => {

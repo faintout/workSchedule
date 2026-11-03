@@ -8,7 +8,7 @@ export interface User {
   registrationSequence: number;
   colorIndex: number;
   color: string;
-  disabledAt: string | null;
+  deletedAt: string | null;
 }
 export interface Schedule {
   userId: string;

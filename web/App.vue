@@ -160,11 +160,11 @@ async function addUser() {
     await api('/admin/users', 'POST', { name: newName.value.trim() }); newName.value = ''; await loadUsers(); await loadMonth()
   } catch (cause) { message(cause) } finally { busy.value = false }
 }
-async function disableUser(user: User) {
+async function deleteUser(user: User) {
   busy.value = true; error.value = ''
   try {
     const preview = await api<{ futureCount: number; firstDate: string | null; lastDate: string | null }>(`/admin/users/${user.id}/deletion-preview`)
-    if (!window.confirm(`停用${user.displayName}？将删除明天起 ${preview.futureCount} 条排班${preview.firstDate ? `（${preview.firstDate} 至 ${preview.lastDate}）` : ''}，保留今天及历史排班。`)) return
+    if (!window.confirm(`删除${user.displayName}的账号？将删除明天起 ${preview.futureCount} 条排班${preview.firstDate ? `（${preview.firstDate} 至 ${preview.lastDate}）` : ''}，保留今天及历史排班。`)) return
     await api(`/admin/users/${user.id}`, 'DELETE'); await loadUsers(); await refresh()
   } catch (cause) { message(cause) } finally { busy.value = false }
 }
@@ -174,7 +174,7 @@ const time = (value: string) => new Intl.DateTimeFormat('zh-CN', { timeZone: 'As
 function describeLog(log: Log) {
   if (log.action === 'user.create') return `添加了用户 ${log.targetName}`
   if (log.action === 'user.rename') return `将 ${log.before?.displayName} 改名为 ${log.after?.displayName}`
-  if (log.action === 'user.disable') return `停用了 ${log.targetName}，删除 ${log.after?.futureCount ?? 0} 条未来排班${log.after?.firstDate ? `（${log.after.firstDate} 至 ${log.after.lastDate}）` : ''}`
+  if (log.action === 'user.delete' || log.action === 'user.disable') return `${log.action === 'user.delete' ? '删除了' : '停用了'} ${log.targetName}，删除 ${log.after?.futureCount ?? 0} 条未来排班${log.after?.firstDate ? `（${log.after.firstDate} 至 ${log.after.lastDate}）` : ''}`
   return `${log.targetName} · ${log.date} · ${shiftLabel(log.before as unknown as Schedule)} → ${shiftLabel(log.after as unknown as Schedule)}`
 }
 async function refreshHolidays() { busy.value = true; try { await api(`/admin/holidays/${month.value.slice(0, 4)}/refresh`, 'POST'); await loadMonth() } catch (cause) { message(cause) } finally { busy.value = false } }
@@ -202,7 +202,7 @@ async function refreshHolidays() { busy.value = true; try { await api(`/admin/ho
       </div>
       <footer class="calendar-footer"><span><i class="legend-self"></i>我的上班</span><span><i class="overtime-badge">加</i>我的加班</span><span><i class="rest-badge">休</i>我的休班</span><span class="muted">点击日期查看详情</span><span class="version">v{{ version }}</span></footer>
     </template>
-    <section v-if="admin && tab === 'users'" class="management"><h2>用户管理</h2><form class="inline-form" @submit.prevent="addUser"><label class="field">姓名<input v-model="newName" maxlength="10" placeholder="1–10 个中文或英文字母" required></label><button class="primary" :disabled="busy">添加用户</button></form><ul class="user-list"><li v-for="user in adminUsers" :key="user.id"><span><i class="dot" :style="{ background: user.color }"></i>{{ user.displayName }}<small v-if="user.disabledAt" class="muted">已停用</small></span><div class="user-actions"><button :disabled="busy" :aria-label="`修改名称：${user.displayName}`" @click="openRename(user, true)">改名</button><button v-if="!user.disabledAt" class="danger" :disabled="busy" @click="disableUser(user)">停用</button></div></li></ul></section>
+    <section v-if="admin && tab === 'users'" class="management"><h2>用户管理</h2><form class="inline-form" @submit.prevent="addUser"><label class="field">姓名<input v-model="newName" maxlength="10" placeholder="1–10 个中文或英文字母" required></label><button class="primary" :disabled="busy">添加用户</button></form><ul class="user-list"><li v-for="user in adminUsers" :key="user.id"><span><i class="dot" :style="{ background: user.color }"></i>{{ user.displayName }}</span><div class="user-actions"><button :disabled="busy" :aria-label="`修改名称：${user.displayName}`" @click="openRename(user, true)">改名</button><button class="danger" :disabled="busy" @click="deleteUser(user)">删除</button></div></li></ul></section>
     <section v-if="admin && tab === 'logs'" class="management"><h2>操作日志</h2><label class="field">查询日期<input v-model="logDate" type="date" required></label><p class="muted">按上海时间显示，最近操作在前。</p><ol class="log-list"><li v-for="log in logData.logs" :key="log.id"><strong>{{ log.actorName }} · {{ time(log.occurredAt) }}</strong><p>{{ describeLog(log) }}</p></li></ol><p v-if="!logData.logs.length" class="muted">当天暂无操作记录</p><div class="pagination"><button :disabled="logPage === 1" @click="pageLogs(-1)">上一页</button><span>{{ logPage }} / {{ Math.max(1, Math.ceil(logData.total / logData.pageSize)) }}</span><button :disabled="logPage * logData.pageSize >= logData.total" @click="pageLogs(1)">下一页</button></div></section>
     <section v-if="admin && tab === 'settings'" class="management"><h2>首页设置</h2><form class="identity-form" @submit.prevent="saveSettings"><label class="field">首页左侧标题<input v-model="homeTitle" placeholder="团队排班" required :disabled="busy"></label><p class="muted">1–40 个字，保存后对所有人显示。</p><button class="primary" :disabled="busy">{{ busy ? '保存中…' : '保存标题' }}</button></form><p v-if="settingsNotice" class="notice" role="status">{{ settingsNotice }}</p></section>
     <div v-if="error && !modal" class="error global-error" role="alert">{{ error }} <button class="text-button" @click="refresh">重试</button></div>

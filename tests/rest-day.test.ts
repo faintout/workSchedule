@@ -74,7 +74,7 @@ test('v1 migration backs up existing data and preserves records, sessions and re
     const originalRow = runtime.db.prepare('SELECT * FROM schedules').get();
     await runtime.app.close();
 
-    // Restore the v1 table definition; the other tables are unchanged between versions.
+    // Restore the v1 schedule and user definitions before reopening the database.
     const legacy = new DatabaseSync(databasePath);
     legacy.exec(`
       BEGIN IMMEDIATE;
@@ -89,13 +89,15 @@ test('v1 migration backs up existing data and preserves records, sessions and re
       DROP TABLE schedules;
       ALTER TABLE schedules_v1 RENAME TO schedules;
       CREATE INDEX schedules_date ON schedules(date);
+      ALTER TABLE users RENAME COLUMN deleted_at TO disabled_at;
+      DELETE FROM settings WHERE key = 'released_color_indexes';
       PRAGMA user_version = 1;
       COMMIT;
     `);
     legacy.close();
 
     runtime = await createApp({ ...options, adminPassword: undefined, databasePath });
-    assert.equal(runtime.db.prepare('PRAGMA user_version').get()!.user_version, 2);
+    assert.equal(runtime.db.prepare('PRAGMA user_version').get()!.user_version, 3);
     assert.deepEqual(runtime.db.prepare('SELECT * FROM schedules').get(), originalRow);
     assert.deepEqual(runtime.db.prepare('SELECT * FROM operation_logs').all(), originalLogs);
     assert.deepEqual(runtime.db.prepare('SELECT * FROM sessions').all(), originalSessions);

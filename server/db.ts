@@ -23,14 +23,14 @@ export function createDatabase(path: string, initialAdminPassword?: string): Dat
   try {
     db.exec('PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000;');
     const version = Number(db.prepare('PRAGMA user_version').get()!.user_version);
-    if (version > 2) throw new Error('数据库版本高于当前应用，请使用新版应用');
+    if (version > 3) throw new Error('数据库版本高于当前应用，请使用新版应用');
     if (version === 0) transaction(db, () => {
       db.exec(`
         CREATE TABLE users (
           id TEXT PRIMARY KEY, original_name TEXT NOT NULL, normalized_name TEXT NOT NULL,
           display_name TEXT NOT NULL, normalized_display_name TEXT NOT NULL UNIQUE,
           suffix INTEGER NOT NULL, registration_sequence INTEGER NOT NULL UNIQUE,
-          color_index INTEGER NOT NULL CHECK(color_index BETWEEN 0 AND 9), disabled_at TEXT
+          color_index INTEGER NOT NULL CHECK(color_index BETWEEN 0 AND 9), deleted_at TEXT
         );
         CREATE INDEX users_name ON users(normalized_name);
         CREATE TABLE schedules (
@@ -53,18 +53,18 @@ export function createDatabase(path: string, initialAdminPassword?: string): Dat
         );
         CREATE INDEX operation_logs_time ON operation_logs(occurred_at DESC,id DESC);
         CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);
-        INSERT INTO settings(key,value) VALUES ('next_registration_sequence','1'),('next_schedule_version','1');
-        PRAGMA user_version = 2;
+        INSERT INTO settings(key,value) VALUES ('next_registration_sequence','1'),('next_schedule_version','1'),('released_color_indexes','[]');
+        PRAGMA user_version = 3;
       `);
     });
-    if (version === 1) {
+    if (version === 1 || version === 2) {
       if (path !== ':memory:') {
         const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-        const destination = join(dirname(path), 'backups', `schedule-before-v2-${stamp}.sqlite`);
+        const destination = join(dirname(path), 'backups', `schedule-before-v${version === 1 ? 2 : 3}-${stamp}.sqlite`);
         mkdirSync(dirname(destination), { recursive: true });
         db.prepare('VACUUM INTO ?').run(destination);
       }
-      transaction(db, () => {
+      if (version === 1) transaction(db, () => {
         db.exec(`
           CREATE TABLE schedules_v2 (
             user_id TEXT NOT NULL REFERENCES users(id), date TEXT NOT NULL,
@@ -79,6 +79,12 @@ export function createDatabase(path: string, initialAdminPassword?: string): Dat
           CREATE INDEX schedules_date ON schedules(date);
           PRAGMA user_version = 2;
         `);
+      });
+      transaction(db, () => {
+        db.exec('ALTER TABLE users RENAME COLUMN disabled_at TO deleted_at;');
+        const releasedColors = db.prepare('SELECT color_index FROM users WHERE deleted_at IS NOT NULL ORDER BY deleted_at,registration_sequence').all();
+        db.prepare("INSERT INTO settings(key,value) VALUES ('released_color_indexes',?)").run(JSON.stringify(releasedColors.map(row => Number(row.color_index))));
+        db.exec('PRAGMA user_version = 3;');
       });
     }
     if (!db.prepare("SELECT value FROM settings WHERE key = 'admin_password_hash'").get()) {
@@ -99,7 +105,7 @@ export function userFromRow(row: Record<string, unknown>): User {
   return {
     id: String(row.id), originalName: String(row.original_name), displayName: String(row.display_name),
     registrationSequence: Number(row.registration_sequence), colorIndex, color: COLORS[colorIndex]!,
-    disabledAt: row.disabled_at == null ? null : String(row.disabled_at),
+    deletedAt: row.deleted_at == null ? null : String(row.deleted_at),
   };
 }
 
@@ -131,8 +137,12 @@ export function insertUser(db: DatabaseSync, name: string, key: string): User {
   while (db.prepare('SELECT 1 FROM users WHERE normalized_display_name = ?').get(key + (suffix || ''))) suffix++;
   const id = randomUUID();
   const sequence = nextNumber(db, 'next_registration_sequence');
+  const remainder = Number(db.prepare('SELECT COUNT(*) AS count FROM users WHERE deleted_at IS NULL').get()!.count) % COLORS.length;
+  const releasedColors: number[] = remainder === 0 ? [] : JSON.parse(String(db.prepare("SELECT value FROM settings WHERE key = 'released_color_indexes'").get()!.value));
+  const colorIndex = releasedColors.shift() ?? remainder;
+  db.prepare("UPDATE settings SET value = ? WHERE key = 'released_color_indexes'").run(JSON.stringify(releasedColors));
   db.prepare(`INSERT INTO users(id,original_name,normalized_name,display_name,normalized_display_name,suffix,registration_sequence,color_index)
-    VALUES (?,?,?,?,?,?,?,?)`).run(id, name, key, name + (suffix || ''), key + (suffix || ''), suffix, sequence, (sequence - 1) % COLORS.length);
+    VALUES (?,?,?,?,?,?,?,?)`).run(id, name, key, name + (suffix || ''), key + (suffix || ''), suffix, sequence, colorIndex);
   return getUser(db, id)!;
 }
 
