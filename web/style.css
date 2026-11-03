@@ -23,6 +23,7 @@ h2{font-size:16px;line-height:1.4;font-weight:600}
 .welcome-label{flex:none;margin-right:6px}
 .welcome-name{min-width:0;min-height:0;padding:1px 8px;border:0;border-radius:10px;color:#fff;font-size:12px;line-height:1.5;overflow-wrap:break-word;overflow-wrap:anywhere}
 .calendar-filters{display:flex;flex:none;margin-left:auto}
+.calendar-filters .display-mode{width:auto;min-height:30px;margin-left:10px;padding:3px 5px;font-size:11px;align-self:center}
 .mine-filter{display:flex;align-items:center;flex:none;padding-left:10px;min-height:30px;white-space:nowrap}
 .mine-filter input{margin-right:5px}
 .text-button{border:0;background:transparent;color:var(--muted);padding:4px 3px;font-size:11px;white-space:nowrap;min-height:30px}
@@ -73,7 +74,14 @@ h2{font-size:16px;line-height:1.4;font-weight:600}
 .day-group::before{content:"";flex:0 0 4px;margin-right:1px;border-radius:2px;background:var(--orange)}
 .day-group.rest::before{background:var(--green)}
 .detail-avatars{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:2px;justify-items:center;min-width:0;flex:1}
+.detail-person{display:flex;justify-content:center;position:relative;min-width:0;width:100%}
 .detail-avatars .avatar{width:14px;height:14px;max-width:100%;font-size:9px}
+.horizontal-details .day-group::before{display:none}
+.horizontal-details .detail-avatars{margin:0 2px}
+.horizontal-details .detail-person::before{content:"";position:absolute;left:0;right:0;bottom:0;height:40%;background:var(--orange)}
+.horizontal-details .detail-person:nth-child(odd):not(:last-child)::before{right:-2px}
+.horizontal-details .rest .detail-person::before{background:var(--green)}
+.horizontal-details .avatar{position:relative}
 .calendar-footer{display:flex;align-items:center;flex-wrap:wrap;min-height:24px;padding-top:4px;font-size:10px;color:var(--muted)}
 .calendar-footer>span{display:flex;align-items:center;margin-right:10px;margin-bottom:6px;white-space:nowrap}
 .calendar-footer>span>i{margin-right:4px}

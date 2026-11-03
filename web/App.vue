@@ -12,7 +12,9 @@ const admin = ref(false)
 const month = ref(shanghaiToday().slice(0, 7))
 const data = ref<MonthData>({ users: [], schedules: [], holidays: [], holidayStatus: 'pending', homeTitle: '团队排班' })
 const onlyMine = ref(localStorage.getItem('schedule.onlyMine') === 'true')
-const detailMode = ref(localStorage.getItem('schedule.detailMode') === 'true')
+const savedDetailStyle = localStorage.getItem('schedule.detailStyle') === 'vertical' ? 'vertical' : 'horizontal'
+const displayMode = ref<'normal' | 'horizontal' | 'vertical'>(localStorage.getItem('schedule.detailMode') === 'true' ? savedDetailStyle : 'normal')
+const detailMode = computed(() => displayMode.value !== 'normal')
 const filterMine = computed(() => !admin.value && onlyMine.value && !!currentUser.value)
 const cells = computed(() => monthCells(month.value))
 const holidayMap = computed(() => new Map(data.value.holidays.map(day => [day.date, day])))
@@ -60,7 +62,7 @@ let identityAttempt = 0
 let timer: ReturnType<typeof setInterval>
 let observer: ResizeObserver
 watch(onlyMine, value => localStorage.setItem('schedule.onlyMine', String(value)))
-watch(detailMode, value => { localStorage.setItem('schedule.detailMode', String(value)); void nextTick(fitAvatars) })
+watch(displayMode, value => { localStorage.setItem('schedule.detailMode', String(value !== 'normal')); if (value !== 'normal') localStorage.setItem('schedule.detailStyle', value); void nextTick(fitAvatars) })
 watch(logDate, () => { logPage.value = 1; if (tab.value === 'logs') void loadLogs() })
 function message(cause: unknown) { error.value = cause instanceof Error ? cause.message : '网络连接失败，请重试' }
 function rememberIdentity() { if (currentUser.value) localStorage.setItem('schedule.user', JSON.stringify(currentUser.value)); else localStorage.removeItem('schedule.user') }
@@ -191,18 +193,18 @@ async function refreshHolidays() { busy.value = true; try { await api(`/admin/ho
       <div><h1>{{ data.homeTitle || '团队排班' }}</h1><span v-if="!connected" class="muted">正在连接…</span></div>
       <button v-if="admin" class="text-button" @click="logoutAdmin">退出管理</button>
     </header>
-    <div v-if="tab === 'calendar'" class="identity-toolbar"><span v-if="currentUser && !admin" class="welcome"><span class="welcome-label">欢迎</span><button class="welcome-name" :style="{ background: userBackground(currentUser) }" :aria-label="`修改我的名称：${currentUser.displayName}`" aria-haspopup="dialog" :disabled="busy" @click="openRename(currentUser)">{{ currentUser.displayName }}</button></span><div class="calendar-filters"><label class="mine-filter"><input v-model="detailMode" type="checkbox">详情模式</label><label v-if="currentUser && !admin" class="mine-filter"><input v-model="onlyMine" type="checkbox">只看我的</label></div></div>
+    <div v-if="tab === 'calendar'" class="identity-toolbar"><span v-if="currentUser && !admin" class="welcome"><span class="welcome-label">欢迎</span><button class="welcome-name" :style="{ background: userBackground(currentUser) }" :aria-label="`修改我的名称：${currentUser.displayName}`" aria-haspopup="dialog" :disabled="busy" @click="openRename(currentUser)">{{ currentUser.displayName }}</button></span><div class="calendar-filters"><select v-model="displayMode" class="display-mode" aria-label="展示方式"><option value="normal">普通模式</option><option value="horizontal">详情·横条</option><option value="vertical">详情·竖条</option></select><label v-if="currentUser && !admin" class="mine-filter"><input v-model="onlyMine" type="checkbox">只看我的</label></div></div>
     <nav v-if="admin" class="admin-tabs" aria-label="管理功能"><span class="mode-tag">管理模式</span><button v-for="item in [{ id: 'calendar', label: '排班日历' }, { id: 'users', label: '用户管理' }, { id: 'logs', label: '操作日志' }, { id: 'settings', label: '首页设置' }]" :key="item.id" :class="{ active: tab === item.id }" @click="changeTab(item.id)">{{ item.label }}</button></nav>
     <template v-if="tab === 'calendar'">
       <div class="month-navigation"><button class="icon-button" aria-label="上个月" @click="moveMonth(-1)">‹</button><button class="month-title" @click="pickedMonth = month; modal = 'month'"><span>{{ month.slice(0, 4) }} 年</span><strong>{{ Number(month.slice(5)) }} 月</strong></button><button class="icon-button" aria-label="下个月" @click="moveMonth(1)">›</button><button class="text-button current-month" @click="loadMonth(shanghaiToday().slice(0, 7))">回到本月</button></div>
       <div v-if="admin" class="calendar-toolbar"><span v-if="data.holidayStatus !== 'ready'" class="muted">该年法定节假日待更新</span><button class="text-button" :disabled="busy" @click="refreshHolidays">刷新节假日</button></div>
       <div class="weekdays"><span v-for="day in ['一', '二', '三', '四', '五', '六', '日']" :key="day">{{ day }}</span></div>
-      <div ref="calendar" class="calendar" :class="{ 'detailed-calendar': detailMode }" :style="detailMode ? undefined : calendarStyle" :aria-label="month + '月历'">
+      <div ref="calendar" class="calendar" :class="{ 'detailed-calendar': detailMode, 'horizontal-details': displayMode === 'horizontal' }" :style="detailMode ? undefined : calendarStyle" :aria-label="month + '月历'">
         <template v-for="(date, index) in cells" :key="date || index">
           <button v-if="date" class="day" :data-date="date" :class="{ weekend: isWeekend(date), 'has-mine': ['morning', 'afternoon', 'full'].includes(myDates.get(date)?.normalShift || '') || myDates.get(date)?.overtime, 'has-rest': myDates.get(date)?.normalShift === 'rest', selected: selectedDate === date }" :aria-label="date + '，' + (byDate.get(date)?.map(entry => userMap.get(entry.userId)!.displayName + ' ' + shiftLabel(entry)).join('，') || '暂无排班')" aria-haspopup="dialog" :aria-expanded="selectedDate === date" @click="openDate(date)">
             <span class="number-row"><span class="day-number" :class="{ today: date === shanghaiToday() }">{{ Number(date.slice(-2)) }}</span><span v-if="myDates.get(date)?.normalShift === 'rest'" class="rest-badge">休</span><span v-else-if="myDates.get(date)?.overtime" class="overtime-badge">加</span></span>
             <span v-if="holidayText(date)" class="holiday" :class="{ makeup: holidayMap.get(date)?.type === 4 }">{{ holidayText(date) }}</span>
-            <span v-if="detailMode" class="day-details"><span v-for="group in detailByDate.get(date)" :key="group.type" class="day-group" :class="group.type" :aria-label="group.label + '人员'"><span class="detail-avatars"><span v-for="entry in group.entries" :key="entry.userId" class="avatar" :style="{ background: userBackground(userMap.get(entry.userId)!) }" :title="userMap.get(entry.userId)!.displayName + ' · ' + shiftLabel(entry)">{{ [...userMap.get(entry.userId)!.originalName].slice(-1)[0] }}</span></span></span></span>
+            <span v-if="detailMode" class="day-details"><span v-for="group in detailByDate.get(date)" :key="group.type" class="day-group" :class="group.type" :aria-label="group.label + '人员'"><span class="detail-avatars"><span v-for="entry in group.entries" :key="entry.userId" class="detail-person"><span class="avatar" :style="{ background: userBackground(userMap.get(entry.userId)!) }" :title="userMap.get(entry.userId)!.displayName + ' · ' + shiftLabel(entry)">{{ [...userMap.get(entry.userId)!.originalName].slice(-1)[0] }}</span></span></span></span></span>
             <span v-else class="avatars" :style="{ gridTemplateColumns: `repeat(${layout(date).columns}, minmax(0, 1fr))` }"><span v-for="entry in (byDate.get(date) || []).slice(0, layout(date).visible)" :key="entry.userId" class="avatar" :style="{ background: userBackground(userMap.get(entry.userId)!) }">{{ [...userMap.get(entry.userId)!.originalName].slice(-1)[0] }}</span><span v-if="layout(date).hidden" class="extra" :style="{ gridColumn: `span ${layout(date).counterSpan}` }">+{{ layout(date).hidden }}</span></span>
           </button><span v-else class="blank-day" aria-hidden="true"></span>
         </template>
