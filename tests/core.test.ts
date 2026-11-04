@@ -119,7 +119,7 @@ test('only administrators can update the public home title, with validation and 
     }
     const updated = await app.inject({ method: 'PUT', url: '/api/admin/settings', headers: { cookie: adminCookie }, payload: { homeTitle: '  浩楠的排班  ' } });
     assert.equal(updated.statusCode, 200, updated.body);
-    assert.deepEqual(updated.json(), { homeTitle: '浩楠的排班', defaultDisplayMode: 'normal', syncIntervalMinutes: 0.5 });
+    assert.deepEqual(updated.json(), { homeTitle: '浩楠的排班', syncIntervalMinutes: 0.5 });
     assert.equal((await app.inject('/api/month?month=2026-11')).json().homeTitle, '浩楠的排班');
     const unicodeTitle = '🌅'.repeat(40);
     assert.equal((await app.inject({ method: 'PUT', url: '/api/admin/settings', headers: { cookie: adminCookie }, payload: { homeTitle: unicodeTitle } })).statusCode, 200);

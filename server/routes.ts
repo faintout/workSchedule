@@ -114,7 +114,6 @@ export async function registerCoreRoutes(app: FastifyInstance, options: CoreOpti
 
   const publicSettings = () => ({
     homeTitle: String(db.prepare("SELECT value FROM settings WHERE key = 'home_title'").get()?.value ?? '团队排班'),
-    defaultDisplayMode: String(db.prepare("SELECT value FROM settings WHERE key = 'default_display_mode'").get()?.value ?? 'normal'),
     syncIntervalMinutes: Number(db.prepare("SELECT value FROM settings WHERE key = 'sync_interval_minutes'").get()?.value ?? 0.5),
   });
   app.get<{ Querystring: { month?: string } }>('/api/month', async request => {
@@ -132,24 +131,19 @@ export async function registerCoreRoutes(app: FastifyInstance, options: CoreOpti
     admin(request);
     const input = body(request);
     const value = input.homeTitle;
-    const defaultDisplayMode = input.defaultDisplayMode;
     const syncIntervalMinutes = input.syncIntervalMinutes;
     if (typeof value !== 'string') fail(400, '首页标题需为 1–40 个字符');
     const homeTitle = value.trim();
     if (!homeTitle || Array.from(homeTitle).length > 40) fail(400, '首页标题需为 1–40 个字符');
-    if (defaultDisplayMode !== undefined && (typeof defaultDisplayMode !== 'string' || !['normal', 'horizontal', 'vertical', 'grouped'].includes(defaultDisplayMode))) {
-      fail(400, '请选择有效的默认展示方式');
-    }
     if (syncIntervalMinutes !== undefined && (typeof syncIntervalMinutes !== 'number' || !Number.isFinite(syncIntervalMinutes)
       || syncIntervalMinutes * 60_000 < 1 || syncIntervalMinutes * 60_000 > 2_147_483_647)) {
       fail(400, '同步间隔需为正数分钟，数值不能过小或过大');
     }
     return transaction(db, () => {
       const previous = publicSettings();
-      const settings = { homeTitle, defaultDisplayMode: defaultDisplayMode ?? previous.defaultDisplayMode, syncIntervalMinutes: syncIntervalMinutes ?? previous.syncIntervalMinutes };
+      const settings = { homeTitle, syncIntervalMinutes: syncIntervalMinutes ?? previous.syncIntervalMinutes };
       const save = db.prepare('INSERT INTO settings(key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value');
       save.run('home_title', settings.homeTitle);
-      save.run('default_display_mode', settings.defaultDisplayMode);
       save.run('sync_interval_minutes', String(settings.syncIntervalMinutes));
       return settings;
     });

@@ -3,9 +3,10 @@ import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
 import { createServer } from 'vite';
 import { createRenderer, nextTick, ssrContextKey } from 'vue';
+import { shanghaiToday } from '../web/calendar.js';
 import viteConfig from '../vite.config.js';
 
-test('client display preferences and visible-page synchronization use saved administrator settings', async t => {
+test('client always renders grouped details while visible-page synchronization uses administrator settings', async t => {
   const vite = await createServer({
     ...viteConfig, configFile: false, root: fileURLToPath(new URL('../', import.meta.url)), logLevel: 'silent',
     optimizeDeps: { noDiscovery: true, include: [] }, server: { middlewareMode: true, hmr: false, open: false },
@@ -16,13 +17,21 @@ test('client display preferences and visible-page synchronization use saved admi
   const listeners = new Map<string, () => void>();
   const timers = new Map<number, { callback: () => void; milliseconds: number }>();
   const requests: string[] = [];
+  const storageReads: string[] = [];
+  const settingsPayloads: Record<string, unknown>[] = [];
   let nextTimer = 0;
   let failSave = false;
   let finishMount: (() => void) | undefined;
-  let remote = { users: [], schedules: [], holidays: [], holidayStatus: 'ready', homeTitle: '团队排班', defaultDisplayMode: 'normal', syncIntervalMinutes: 0.5 };
+  const users = ['张三', '李四'].map((displayName, index) => ({ id: `person-${index}`, displayName, originalName: displayName, registrationSequence: index + 1, colorIndex: index, color: '#20B5DF', deletedAt: null }));
+  const date = shanghaiToday().slice(0, 7) + '-07';
+  let remote = { users, schedules: [
+    { userId: users[0].id, date, normalShift: 'full', overtime: true, version: 1 },
+    { userId: users[1].id, date, normalShift: 'rest', overtime: false, version: 2 },
+  ], holidays: [], holidayStatus: 'ready', homeTitle: '团队排班', defaultDisplayMode: 'normal', syncIntervalMinutes: 0.5 };
+  let session: { user: typeof users[number] | null; admin: boolean } = { user: null, admin: false };
   const browserDocument = { visibilityState: 'visible', addEventListener(name: string, callback: () => void) { listeners.set(name, callback); if (name === 'visibilitychange') finishMount?.(); }, removeEventListener: (name: string) => listeners.delete(name) };
   const globals = {
-    localStorage: { getItem: (key: string) => storage.get(key) ?? null, setItem: (key: string, value: string) => storage.set(key, value), removeItem: (key: string) => storage.delete(key) },
+    localStorage: { getItem(key: string) { storageReads.push(key); return storage.get(key) ?? null; }, setItem: (key: string, value: string) => storage.set(key, value), removeItem: (key: string) => storage.delete(key) },
     window: { innerHeight: 800, addEventListener() {}, removeEventListener() {} },
     location: { pathname: '/' }, document: browserDocument,
     ResizeObserver: class { observe() {} disconnect() {} },
@@ -34,10 +43,11 @@ test('client display preferences and visible-page synchronization use saved admi
   }
   t.mock.method(globalThis, 'fetch', async (input: string, options?: RequestInit) => {
     requests.push(input);
-    if (input === '/api/session') return Response.json({ user: null, admin: false });
+    if (input === '/api/session') return Response.json(session);
     if (input === '/api/admin/settings') {
       if (failSave) return Response.json({ message: '保存失败' }, { status: 400 });
       const settings = JSON.parse(String(options?.body));
+      settingsPayloads.push(settings);
       remote = { ...remote, ...settings };
       return Response.json(settings);
     }
@@ -54,67 +64,40 @@ test('client display preferences and visible-page synchronization use saved admi
     app.provide(ssrContextKey, {});
     const vm = app.mount({});
     await ready; finishMount = undefined; await nextTick();
-    return { app, state: vm.$.setupState };
+    const render = () => {
+      const chunks: string[] = [];
+      App.ssrRender(vm, (html: string) => chunks.push(html), vm.$, {}, vm.$.props, vm.$.setupState, {}, {});
+      return chunks.join('');
+    };
+    return { app, state: vm.$.setupState, render };
   };
 
-  await t.test('unset preference follows changed server defaults without creating a personal preference', async () => {
-    const { app, state } = await mount();
-    try {
-      assert.equal(state.displayMode, 'normal');
-      assert.equal(timers.size, 1);
-      assert.equal([...timers.values()][0].milliseconds, 30_000);
-      remote = { ...remote, defaultDisplayMode: 'horizontal' };
-      await state.loadMonth(); await flush();
-      assert.equal(state.displayMode, 'horizontal');
-      remote = { ...remote, defaultDisplayMode: 'vertical' };
-      await state.loadMonth(); await flush();
-      assert.equal(state.displayMode, 'vertical');
-      remote = { ...remote, defaultDisplayMode: 'grouped' };
-      await state.loadMonth(); await flush();
-      assert.equal(state.displayMode, 'grouped');
-      assert.equal(storage.size, 0);
-      state.displayMode = 'vertical';
-      assert.equal(storage.get('schedule.detailMode'), 'true');
-      assert.equal(storage.get('schedule.detailStyle'), 'vertical');
-    } finally { app.unmount(); storage.clear(); }
-  });
-
-  await t.test('explicit normal choice overrides administrator detail mode and survives remount', async () => {
-    const first = await mount();
-    try {
-      first.state.displayMode = 'normal';
-      await flush();
-      assert.equal(storage.get('schedule.detailMode'), 'false');
-    } finally { first.app.unmount(); }
-    const restored = await mount();
-    try { assert.equal(restored.state.displayMode, 'normal'); }
-    finally { restored.app.unmount(); storage.clear(); }
-  });
-
-  await t.test('legacy normal and detail preferences retain their original meaning', async () => {
-    for (const [mode, style, expected] of [['false', null, 'normal'], ['true', 'vertical', 'vertical'], ['true', null, 'horizontal']]) {
-      storage.set('schedule.detailMode', mode!);
-      if (style) storage.set('schedule.detailStyle', style);
-      const { app, state } = await mount();
-      try { assert.equal(state.displayMode, expected); }
-      finally { app.unmount(); storage.clear(); }
+  await t.test('preview, member and admin render both groups despite old display preferences', async () => {
+    for (const [user, admin, mode, style] of [[null, false, 'false', 'horizontal'], [users[0], false, 'true', 'vertical'], [users[0], true, 'true', 'horizontal']] as const) {
+      session = { user, admin };
+      storage.set('schedule.detailMode', mode); storage.set('schedule.detailStyle', style);
+      storageReads.length = 0;
+      const { app, state, render } = await mount();
+      try {
+        const html = render();
+        assert.match(html, /class="day-group-label">上班/);
+        assert.match(html, /class="day-group-label">休息/);
+        assert.equal((html.match(/class="detail-person"/g) ?? []).length, 2);
+        assert.match(html, /aria-label="查看人员"/);
+        assert.doesNotMatch(html, /展示方式|display-mode|horizontal-details|class="avatars"|class="extra"/);
+        assert.equal(storageReads.includes('schedule.detailMode'), false);
+        assert.equal(storageReads.includes('schedule.detailStyle'), false);
+        assert.equal(timers.size, 1);
+        assert.equal([...timers.values()][0].milliseconds, 30_000);
+        if (admin) {
+          await state.changeTab('settings');
+          const settingsHtml = render();
+          assert.match(settingsHtml, /自动同步间隔/);
+          assert.doesNotMatch(settingsHtml, /默认展示方式|display-mode/);
+        }
+      } finally { app.unmount(); storage.clear(); }
     }
-  });
-
-  await t.test('grouped display is remembered and overrides changed administrator defaults', async () => {
-    const first = await mount();
-    try {
-      first.state.displayMode = 'grouped';
-      await flush();
-      assert.equal(storage.get('schedule.detailMode'), 'true');
-      assert.equal(storage.get('schedule.detailStyle'), 'grouped');
-      remote = { ...remote, defaultDisplayMode: 'normal' };
-      await first.state.loadMonth(); await flush();
-      assert.equal(first.state.displayMode, 'grouped');
-    } finally { first.app.unmount(); }
-    const restored = await mount();
-    try { assert.equal(restored.state.displayMode, 'grouped'); }
-    finally { restored.app.unmount(); storage.clear(); }
+    session = { user: null, admin: false };
   });
 
   await t.test('decimal interval replaces one timer, hidden pages skip requests, and foreground refreshes immediately', async () => {
@@ -145,26 +128,26 @@ test('client display preferences and visible-page synchronization use saved admi
   });
 
   await t.test('settings drafts and failed saves do not change behavior; successful saves apply immediately', async () => {
-    remote = { ...remote, defaultDisplayMode: 'vertical' };
+    session = { user: users[0], admin: true };
     const { app, state } = await mount();
     try {
       await state.changeTab('settings');
-      const oldMode = state.displayMode;
+      const oldTitle = state.data.homeTitle;
       const oldTimer = nextTimer;
-      state.defaultDisplayMode = 'normal'; state.syncIntervalMinutes = 0.75;
+      state.homeTitle = '新的团队标题'; state.syncIntervalMinutes = 0.75;
       await flush();
-      assert.equal(state.displayMode, oldMode);
+      assert.equal(state.data.homeTitle, oldTitle);
       assert.equal(nextTimer, oldTimer);
       failSave = true;
       await state.saveSettings(); await flush();
-      assert.equal(state.displayMode, oldMode);
+      assert.equal(state.data.homeTitle, oldTitle);
       assert.equal(nextTimer, oldTimer);
       failSave = false;
       await state.saveSettings(); await flush();
-      assert.equal(state.displayMode, 'normal');
+      assert.equal(state.data.homeTitle, '新的团队标题');
       assert.equal(timers.size, 1);
       assert.equal([...timers.values()][0].milliseconds, 45_000);
-      assert.equal(storage.size, 0);
-    } finally { app.unmount(); }
+      assert.deepEqual(settingsPayloads.at(-1), { homeTitle: '新的团队标题', syncIntervalMinutes: 0.75 });
+    } finally { app.unmount(); storage.clear(); }
   });
 });

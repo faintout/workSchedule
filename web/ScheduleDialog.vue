@@ -3,7 +3,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import Modal from './Modal.vue'
 import { api, ApiError } from './api'
 import { contiguousBlocks, selectedSlots, shiftLabel, sortedSchedules, userBackground, weekdays, type Holiday, type Schedule, type User } from './calendar'
-const props = defineProps<{ date: string; users: User[]; schedules: Schedule[]; currentUser: User | null; admin: boolean; onlyMine: boolean; holiday?: Holiday }>()
+const props = defineProps<{ date: string; users: User[]; schedules: Schedule[]; currentUser: User | null; admin: boolean; onlyMine: boolean; filterUserId: string; holiday?: Holiday }>()
 const emit = defineEmits<{ close: []; saved: []; login: [] }>()
 const title = computed(() => `${props.date.replace(/^(\d+)-(\d+)-(\d+)$/, (_, year, month, day) => `${year}年${Number(month)}月${Number(day)}日`)} · ${weekdays[new Date(props.date + 'T00:00:00Z').getUTCDay()]}`)
 const people = ref<HTMLElement>()
@@ -18,7 +18,7 @@ const busy = ref(false)
 const error = ref('')
 const notice = ref('')
 const frozen = ref<Schedule[]>([])
-const entries = computed(() => editing.value ? frozen.value : sortedSchedules(props.schedules.filter(entry => entry.date === props.date && (!props.onlyMine || entry.userId === props.currentUser?.id)), props.users))
+const entries = computed(() => editing.value ? frozen.value : sortedSchedules(props.schedules.filter(entry => entry.date === props.date && (!props.filterUserId || entry.userId === props.filterUserId)), props.users))
 const workingEntries = computed(() => entries.value.filter(entry => entry.normalShift !== 'rest'))
 const restEntries = computed(() => entries.value.filter(entry => entry.normalShift === 'rest'))
 const userMap = computed(() => new Map(props.users.map(user => [user.id, user])))
@@ -102,7 +102,7 @@ function blockStyle(entry: Schedule, start: number, end: number) {
 </script>
 <template>
   <Modal :title="title" @close="emit('close')">
-    <p class="detail-meta">{{ holiday?.type === 4 ? '补班 · ' + holiday.name : holiday && [2, 3].includes(holiday.type) ? '休假 · ' + holiday.name : '' }}{{ onlyMine ? '仅我的排班 · ' : '' }}{{ workingEntries.length }} 人上班 · {{ restEntries.length }} 人休班</p>
+    <p class="detail-meta">{{ holiday?.type === 4 ? '补班 · ' + holiday.name : holiday && [2, 3].includes(holiday.type) ? '休假 · ' + holiday.name : '' }}{{ onlyMine ? '仅我的排班 · ' : filterUserId ? '仅' + userMap.get(filterUserId)?.displayName + '的排班 · ' : '' }}{{ workingEntries.length }} 人上班 · {{ restEntries.length }} 人休班</p>
     <div v-if="detailUsers.length" class="members" aria-label="当天排班人员"><span v-for="user in detailUsers" :key="user.id" class="member"><i class="dot" :style="{ background: userBackground(user) }"></i>{{ user.displayName }}<span v-if="user.id === currentUser?.id" class="me-tag">我</span><span v-if="user.deletedAt" class="muted">已删除</span></span></div>
     <div v-show="workingEntries.length || !restEntries.length" class="matrix">
       <div class="axis"><span></span><span>上午</span><span>下午</span><span>加班</span></div>

@@ -5,25 +5,23 @@ import ScheduleDialog from './ScheduleDialog.vue'
 import { api, ApiError } from './api'
 import { avatarLayout, monthCells, shanghaiToday, shiftLabel, sortedSchedules, userBackground, type Holiday, type Schedule, type User } from './calendar'
 type DisplayMode = 'normal' | 'horizontal' | 'vertical' | 'grouped'
-interface HomeSettings { homeTitle: string; defaultDisplayMode: DisplayMode; syncIntervalMinutes: number }
+interface HomeSettings { homeTitle: string; syncIntervalMinutes: number }
 interface MonthData extends HomeSettings { users: User[]; schedules: Schedule[]; holidays: Holiday[]; holidayStatus: 'pending' | 'ready' }
 interface Log { id: number; actorName: string; action: string; targetName: string; date: string | null; before: Record<string, unknown> | null; after: Record<string, unknown> | null; occurredAt: string }
 const version = __APP_VERSION__
 const currentUser = ref<User | null>(null)
 const admin = ref(false)
 const month = ref(shanghaiToday().slice(0, 7))
-const data = ref<MonthData>({ users: [], schedules: [], holidays: [], holidayStatus: 'pending', homeTitle: '团队排班', defaultDisplayMode: 'normal', syncIntervalMinutes: 0.5 })
+const data = ref<MonthData>({ users: [], schedules: [], holidays: [], holidayStatus: 'pending', homeTitle: '团队排班', syncIntervalMinutes: 0.5 })
 const onlyMine = ref(localStorage.getItem('schedule.onlyMine') === 'true')
-const savedDetailMode = localStorage.getItem('schedule.detailMode')
-const storedDetailStyle = localStorage.getItem('schedule.detailStyle')
-const savedDetailStyle = storedDetailStyle === 'vertical' || storedDetailStyle === 'grouped' ? storedDetailStyle : 'horizontal'
-const personalDisplayMode = ref<DisplayMode | null>(savedDetailMode === 'true' ? savedDetailStyle : savedDetailMode === 'false' ? 'normal' : null)
-const displayMode = computed<DisplayMode>({
-  get: () => personalDisplayMode.value ?? data.value.defaultDisplayMode,
-  set(value) { personalDisplayMode.value = value; localStorage.setItem('schedule.detailMode', String(value !== 'normal')); if (value !== 'normal') localStorage.setItem('schedule.detailStyle', value) },
+const selectedUserId = ref('')
+const personFilter = computed({
+  get: () => selectedUserId.value || (!admin.value && onlyMine.value ? currentUser.value?.id || '' : ''),
+  set(value: string) { selectedUserId.value = value; onlyMine.value = !admin.value && !!currentUser.value && value === currentUser.value.id },
 })
+const displayMode = ref<DisplayMode>('grouped')
 const detailMode = computed(() => displayMode.value !== 'normal')
-const filterMine = computed(() => !admin.value && onlyMine.value && !!currentUser.value)
+const filterMine = computed(() => !admin.value && !!currentUser.value && personFilter.value === currentUser.value.id)
 const cells = computed(() => monthCells(month.value))
 const holidayMap = computed(() => new Map(data.value.holidays.map(day => [day.date, day])))
 const calendarRows = computed(() => Array.from({ length: cells.value.length / 7 }, (_, week) => cells.value.slice(week * 7, week * 7 + 7).some(date => date && holidayText(date)) ? 84 : 64))
@@ -31,7 +29,7 @@ const calendarStyle = computed(() => ({ gridTemplateRows: calendarRows.value.map
 const userMap = computed(() => new Map(data.value.users.map(user => [user.id, user])))
 const byDate = computed(() => {
   const result = new Map<string, Schedule[]>()
-  for (const entry of sortedSchedules(data.value.schedules, data.value.users)) { if (filterMine.value && entry.userId !== currentUser.value?.id) continue; const entries = result.get(entry.date) || []; entries.push(entry); result.set(entry.date, entries) }
+  for (const entry of sortedSchedules(data.value.schedules, data.value.users)) { if (personFilter.value && entry.userId !== personFilter.value) continue; const entries = result.get(entry.date) || []; entries.push(entry); result.set(entry.date, entries) }
   return result
 })
 const detailByDate = computed(() => new Map([...byDate.value].map(([date, entries]) => [date, [
@@ -59,7 +57,6 @@ const renamingUser = ref<User | null>(null)
 const renameName = ref('')
 const renameAsAdmin = ref(false)
 const homeTitle = ref('')
-const defaultDisplayMode = ref<DisplayMode>('normal')
 const syncIntervalMinutes = ref(0.5)
 const settingsNotice = ref('')
 const logDate = ref(shanghaiToday())
@@ -72,6 +69,7 @@ let identityAttempt = 0
 let timer: ReturnType<typeof setInterval> | undefined
 let observer: ResizeObserver
 watch(onlyMine, value => localStorage.setItem('schedule.onlyMine', String(value)))
+watch(() => data.value.users, users => { if (selectedUserId.value && !users.some(user => user.id === selectedUserId.value)) selectedUserId.value = '' })
 watch(displayMode, () => { void nextTick(fitAvatars) })
 watch(() => data.value.syncIntervalMinutes, () => { if (timer) restartSyncTimer() })
 watch(logDate, () => { logPage.value = 1; if (tab.value === 'logs') void loadLogs() })
@@ -151,10 +149,10 @@ function closeModal() {
   if (modal.value === 'identity') { identityAttempt++; busy.value = false }
   modal.value = null; error.value = ''; password.value = ''
 }
-async function changeTab(value: string) { tab.value = value; error.value = ''; if (value === 'users') await loadUsers(); if (value === 'logs') await loadLogs(); if (value === 'settings') { homeTitle.value = data.value.homeTitle; defaultDisplayMode.value = data.value.defaultDisplayMode; syncIntervalMinutes.value = data.value.syncIntervalMinutes; settingsNotice.value = '' } }
+async function changeTab(value: string) { tab.value = value; error.value = ''; if (value === 'users') await loadUsers(); if (value === 'logs') await loadLogs(); if (value === 'settings') { homeTitle.value = data.value.homeTitle; syncIntervalMinutes.value = data.value.syncIntervalMinutes; settingsNotice.value = '' } }
 async function saveSettings() {
   busy.value = true; error.value = ''; settingsNotice.value = ''
-  try { const result = await api<HomeSettings>('/admin/settings', 'PUT', { homeTitle: homeTitle.value, defaultDisplayMode: defaultDisplayMode.value, syncIntervalMinutes: syncIntervalMinutes.value }); requestNumber++; Object.assign(data.value, result); homeTitle.value = result.homeTitle; defaultDisplayMode.value = result.defaultDisplayMode; syncIntervalMinutes.value = result.syncIntervalMinutes; settingsNotice.value = '参数配置已保存' } catch (cause) { message(cause) } finally { busy.value = false }
+  try { const result = await api<HomeSettings>('/admin/settings', 'PUT', { homeTitle: homeTitle.value, syncIntervalMinutes: syncIntervalMinutes.value }); requestNumber++; Object.assign(data.value, result); homeTitle.value = result.homeTitle; syncIntervalMinutes.value = result.syncIntervalMinutes; settingsNotice.value = '参数配置已保存' } catch (cause) { message(cause) } finally { busy.value = false }
 }
 async function loadUsers() {
   const number = ++usersRequestNumber
@@ -205,7 +203,7 @@ async function refreshHolidays() { busy.value = true; try { await api(`/admin/ho
       <div><h1>{{ data.homeTitle || '团队排班' }}</h1><span v-if="!connected" class="muted">正在连接…</span></div>
       <button v-if="admin" class="text-button" @click="logoutAdmin">退出管理</button>
     </header>
-    <div v-if="tab === 'calendar'" class="identity-toolbar"><span v-if="currentUser && !admin" class="welcome"><span class="welcome-label">欢迎</span><button class="welcome-name" :style="{ background: userBackground(currentUser) }" :aria-label="`修改我的名称：${currentUser.displayName}`" aria-haspopup="dialog" :disabled="busy" @click="openRename(currentUser)">{{ currentUser.displayName }}</button></span><div class="calendar-filters"><select v-model="displayMode" class="display-mode" aria-label="展示方式"><option value="normal">普通模式</option><option value="horizontal">详情·横条</option><option value="vertical">详情·竖条</option><option value="grouped">详情·分组</option></select><label v-if="currentUser && !admin" class="mine-filter"><input v-model="onlyMine" type="checkbox">只看我的</label></div></div>
+    <div v-if="tab === 'calendar'" class="identity-toolbar"><span v-if="currentUser && !admin" class="welcome"><span class="welcome-label">欢迎</span><button class="welcome-name" :style="{ background: userBackground(currentUser) }" :aria-label="`修改我的名称：${currentUser.displayName}`" aria-haspopup="dialog" :disabled="busy" @click="openRename(currentUser)">{{ currentUser.displayName }}</button></span><div class="calendar-filters"><select v-model="personFilter" class="person-filter" aria-label="查看人员"><option value="">全部人员</option><option v-for="user in data.users" :key="user.id" :value="user.id">{{ user.displayName }}{{ user.id === currentUser?.id && !admin ? '（我）' : '' }}{{ user.deletedAt ? '（已删除）' : '' }}</option></select></div></div>
     <nav v-if="admin" class="admin-tabs" aria-label="管理功能"><span class="mode-tag">管理模式</span><button v-for="item in [{ id: 'calendar', label: '排班日历' }, { id: 'users', label: '用户管理' }, { id: 'logs', label: '操作日志' }, { id: 'settings', label: '参数配置' }]" :key="item.id" :class="{ active: tab === item.id }" @click="changeTab(item.id)">{{ item.label }}</button></nav>
     <template v-if="tab === 'calendar'">
       <div class="month-navigation"><button class="icon-button" aria-label="上个月" @click="moveMonth(-1)">‹</button><button class="month-title" @click="pickedMonth = month; modal = 'month'"><span>{{ month.slice(0, 4) }} 年</span><strong>{{ Number(month.slice(5)) }} 月</strong></button><button class="icon-button" aria-label="下个月" @click="moveMonth(1)">›</button><button class="text-button current-month" @click="loadMonth(shanghaiToday().slice(0, 7))">回到本月</button></div>
@@ -225,10 +223,10 @@ async function refreshHolidays() { busy.value = true; try { await api(`/admin/ho
     </template>
     <section v-if="admin && tab === 'users'" class="management"><h2>用户管理</h2><form class="inline-form" @submit.prevent="addUser"><label class="field">姓名<input v-model="newName" maxlength="10" placeholder="1–10 个中文或英文字母" required></label><button class="primary" :disabled="busy">添加用户</button></form><ul class="user-list"><li v-for="user in adminUsers" :key="user.id"><span><i class="dot" :style="{ background: user.color }"></i>{{ user.displayName }}</span><div class="user-actions"><button :disabled="busy" :aria-label="`修改名称：${user.displayName}`" @click="openRename(user, true)">改名</button><button class="danger" :disabled="busy" @click="deleteUser(user)">删除</button></div></li></ul></section>
     <section v-if="admin && tab === 'logs'" class="management"><h2>操作日志</h2><label class="field">查询日期<input v-model="logDate" type="date" required></label><p class="muted">按上海时间显示，最近操作在前。</p><ol class="log-list"><li v-for="log in logData.logs" :key="log.id"><strong>{{ log.actorName }} · {{ time(log.occurredAt) }}</strong><p>{{ describeLog(log) }}</p></li></ol><p v-if="!logData.logs.length" class="muted">当天暂无操作记录</p><div class="pagination"><button :disabled="logPage === 1" @click="pageLogs(-1)">上一页</button><span>{{ logPage }} / {{ Math.max(1, Math.ceil(logData.total / logData.pageSize)) }}</span><button :disabled="logPage * logData.pageSize >= logData.total" @click="pageLogs(1)">下一页</button></div></section>
-    <section v-if="admin && tab === 'settings'" class="management"><h2>参数配置</h2><form class="identity-form" @submit.prevent="saveSettings"><label class="field">首页左侧标题<input v-model="homeTitle" placeholder="团队排班" required :disabled="busy"></label><p class="muted">1–40 个字，保存后对所有人显示。</p><label class="field">默认展示方式<select v-model="defaultDisplayMode" :disabled="busy"><option value="normal">普通模式</option><option value="horizontal">详情·横条</option><option value="vertical">详情·竖条</option><option value="grouped">详情·分组</option></select></label><p class="muted">客户端未设置展示方式时使用此默认值；个人设置优先。</p><label class="field">自动同步间隔（分钟）<input v-model.number="syncIntervalMinutes" type="number" min="0" step="any" required :disabled="busy"></label><p class="muted">请输入大于 0 的分钟数，支持小数。页面可见时自动同步，默认 0.5 分钟（30 秒）。</p><button class="primary" :disabled="busy">{{ busy ? '保存中…' : '保存设置' }}</button></form><p v-if="settingsNotice" class="notice" role="status">{{ settingsNotice }}</p></section>
+    <section v-if="admin && tab === 'settings'" class="management"><h2>参数配置</h2><form class="identity-form" @submit.prevent="saveSettings"><label class="field">首页左侧标题<input v-model="homeTitle" placeholder="团队排班" required :disabled="busy"></label><p class="muted">1–40 个字，保存后对所有人显示。</p><label class="field">自动同步间隔（分钟）<input v-model.number="syncIntervalMinutes" type="number" min="0" step="any" required :disabled="busy"></label><p class="muted">请输入大于 0 的分钟数，支持小数。页面可见时自动同步，默认 0.5 分钟（30 秒）。</p><button class="primary" :disabled="busy">{{ busy ? '保存中…' : '保存设置' }}</button></form><p v-if="settingsNotice" class="notice" role="status">{{ settingsNotice }}</p></section>
     <div v-if="error && !modal" class="error global-error" role="alert">{{ error }} <button class="text-button" @click="refresh">重试</button></div>
   </main>
-  <ScheduleDialog v-if="selectedDate" ref="scheduleDialog" :date="selectedDate" :users="data.users" :schedules="data.schedules" :current-user="currentUser" :admin="admin" :only-mine="filterMine" :holiday="holidayMap.get(selectedDate)" @close="closeDate" @saved="loadMonth()" @login="requestIdentity" />
+  <ScheduleDialog v-if="selectedDate" ref="scheduleDialog" :date="selectedDate" :users="data.users" :schedules="data.schedules" :current-user="currentUser" :admin="admin" :only-mine="filterMine" :filter-user-id="personFilter" :holiday="holidayMap.get(selectedDate)" @close="closeDate" @saved="loadMonth()" @login="requestIdentity" />
   <Modal v-if="modal === 'identity'" title="确认你的姓名" @close="closeModal">
     <p class="muted">输入姓名，新设备可认领已有成员。</p>
     <form v-if="candidates === null" class="identity-form" @submit.prevent="findIdentity"><label class="field">姓名<input v-model="name" maxlength="10" placeholder="1–10 个中文或英文字母" autocomplete="name" required :disabled="busy"></label><button class="primary" :disabled="busy">{{ busy ? '正在确认…' : '继续' }}</button></form>
