@@ -53,6 +53,8 @@ h2{font-size:16px;line-height:1.4;font-weight:600}
 .day.has-mine{background:var(--work);border-color:#c89460;color:#273342}
 .day.has-rest{background:var(--rest);border-color:var(--green);color:#273342}
 .day.selected{box-shadow:inset 0 0 0 2px var(--blue)}
+.past-date{position:relative;filter:opacity(0.8)}
+.past-date::after{content:"";position:absolute;top:0;right:0;bottom:0;left:0;z-index:5;border-radius:inherit;background:rgba(128,128,128,.3);pointer-events:none}
 .number-row{display:flex;align-items:center;justify-content:space-between;height:20px;flex:none;min-width:0}
 .day-number{display:flex;align-items:center;justify-content:center;width:19px;height:19px;font-size:11px;flex:none}
 .day-number.today{border:1px solid var(--blue);border-radius:50%;color:var(--blue)}

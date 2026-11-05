@@ -1,6 +1,6 @@
 # workSchedule
 
-面向 2–30 人可信团队的手机 H5 排班系统，版本 **v0.1.8**。Vue 3 + TypeScript 提供月历和日期矩阵，Fastify 同源提供页面与 API，SQLite 持久保存用户、会话、排班、节假日和操作日志。
+面向 2–30 人可信团队的手机 H5 排班系统，版本 **v0.1.9**。Vue 3 + TypeScript 提供月历和日期矩阵，Fastify 同源提供页面与 API，SQLite 持久保存用户、会话、排班、节假日和操作日志。
 
 规则见 [SCHEDULING_PLAN.md](SCHEDULING_PLAN.md)。原有 [独立原型](docs/schedule-preview.html) 保留作界面参考；真实系统使用 `web/` 和 `server/`。
 
