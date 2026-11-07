@@ -54,7 +54,12 @@ test('person selection filters work and rest without changing identity or editin
     app.provide(ssrContextKey, {});
     const vm = app.mount({});
     await ready; finishMount = undefined; await nextTick();
-    return { app, state: vm.$.setupState };
+    const render = () => {
+      const chunks: string[] = [];
+      App.ssrRender(vm, (html: string) => chunks.push(html), vm.$, {}, vm.$.props, vm.$.setupState, {}, {});
+      return chunks.join('');
+    };
+    return { app, state: vm.$.setupState, render };
   };
 
   for (const [role, user, admin] of [['preview', null, false], ['administrator', self, true], ['member', self, false]] as const) {
@@ -84,6 +89,112 @@ test('person selection filters work and rest without changing identity or editin
       } finally { app.unmount(); storage.clear(); }
     });
   }
+
+  for (const [role, user, admin] of [['preview', null, false], ['administrator', self, true], ['member', self, false]] as const) {
+    await t.test(`${role} can combine work and rest checkboxes with the person selection`, async () => {
+      session = { user, admin };
+      const previous = remote;
+      remote = { ...remote, schedules: [...schedules,
+        { userId: self.id, date: '2026-11-04', normalShift: 'none', overtime: true, version: 5 },
+        { userId: other.id, date: '2026-11-04', normalShift: 'rest', overtime: false, version: 6 },
+      ] };
+      const { app, state, render } = await mount();
+      const entries = () => [...state.byDate.values()].flat() as Schedule[];
+      const checkbox = (html: string, label: string) => {
+        const labels = [...html.matchAll(/<label\b[^>]*>([\s\S]*?)<\/label>/g)];
+        const found = labels.find(match => match[1].replace(/<[^>]*>/g, '').replace(/\s/g, '') === label);
+        assert.ok(found, `${role} has a ${label} label`);
+        assert.match(found[1], /<input\b[^>]*type="checkbox"/);
+        return found[1].match(/<input\b[^>]*>/)![0];
+      };
+      try {
+        const identity = state.currentUser;
+        const before = requests.length;
+        assert.equal(state.showWork, true);
+        assert.equal(state.showRest, true);
+        assert.equal(entries().length, 6);
+        assert.equal(state.myDates.size, user ? 3 : 0);
+        assert.match(checkbox(render(), '上班'), /\bchecked\b/);
+        assert.match(checkbox(render(), '休息'), /\bchecked\b/);
+
+        state.showRest = false; await flush();
+        assert.equal(entries().length, 3);
+        assert.ok(entries().every(entry => entry.normalShift !== 'rest'));
+        assert.equal(state.myDates.size, user ? 2 : 0);
+        assert.equal(state.myDates.has('2026-11-03'), false);
+        assert.equal(state.byDate.get('2026-11-04')[0].overtime, true);
+        assert.match(render(), /class="day-group-label">上班/);
+        assert.doesNotMatch(render(), /class="day-group-label">休息/);
+        assert.doesNotMatch(checkbox(render(), '休息'), /\bchecked\b/);
+
+        state.showWork = false; await flush();
+        assert.equal(state.byDate.size, 0);
+        assert.equal(state.detailByDate.size, 0);
+        assert.equal(state.myDates.size, 0);
+        assert.doesNotMatch(render(), /class="detail-person"|class="day-group-label"/);
+
+        state.showRest = true; await flush();
+        assert.equal(entries().length, 3);
+        assert.ok(entries().every(entry => entry.normalShift === 'rest'));
+        assert.deepEqual([...state.myDates.keys()], user ? ['2026-11-03'] : []);
+        assert.doesNotMatch(render(), /class="day-group-label">上班/);
+        assert.match(render(), /class="day-group-label">休息/);
+        assert.doesNotMatch(checkbox(render(), '上班'), /\bchecked\b/);
+        state.personFilter = other.id; await flush();
+        assert.equal(entries().length, 2);
+        assert.ok(entries().every(entry => entry.userId === other.id && entry.normalShift === 'rest'));
+        assert.deepEqual([...state.myDates.keys()], user ? ['2026-11-03'] : [], 'person filtering preserves the signed-in user highlight');
+
+        state.showWork = true; await flush();
+        assert.equal(entries().length, 3);
+        assert.ok(entries().every(entry => entry.userId === other.id));
+        state.personFilter = ''; await flush();
+        assert.equal(entries().length, 6);
+        assert.equal(state.currentUser, identity);
+        assert.equal(state.admin, admin);
+        assert.equal(requests.length, before);
+      } finally { app.unmount(); storage.clear(); remote = previous; }
+    });
+  }
+
+  await t.test('status preferences survive remounts, role changes and month loads in the same browser', async () => {
+    storage.clear();
+    session = { user: null, admin: false };
+    const first = await mount();
+    try {
+      assert.deepEqual([first.state.showWork, first.state.showRest], [true, true], 'first visit shows both statuses');
+    } finally { first.app.unmount(); }
+    try {
+      for (const [showWork, showRest] of [[true, true], [true, false], [false, true], [false, false]] as const) {
+        session = { user: null, admin: false };
+        const selected = await mount();
+        try {
+          selected.state.showWork = !showWork; selected.state.showRest = !showRest; await flush();
+          selected.state.showWork = showWork; selected.state.showRest = showRest; await flush();
+        } finally { selected.app.unmount(); }
+        for (const [user, admin] of [[null, false], [self, false], [self, true]] as const) {
+          session = { user, admin };
+          const restored = await mount();
+          const expectSelection = () => {
+            assert.deepEqual([restored.state.showWork, restored.state.showRest], [showWork, showRest]);
+            const entries = [...restored.state.byDate.values()].flat() as Schedule[];
+            assert.equal(entries.length, (showWork ? 2 : 0) + (showRest ? 2 : 0));
+            assert.ok(entries.every(entry => entry.normalShift === 'rest' ? showRest : showWork));
+          };
+          try {
+            expectSelection();
+            await restored.state.loadMonth('2026-12'); await flush();
+            assert.equal(restored.state.month, '2026-12');
+            expectSelection();
+            session = admin ? { user: null, admin: false } : { user: self, admin: true };
+            await restored.state.refreshIdentity(); await flush();
+            assert.equal(restored.state.admin, session.admin);
+            expectSelection();
+          } finally { restored.app.unmount(); }
+        }
+      }
+    } finally { storage.clear(); session = { user: null, admin: false }; }
+  });
 
   await t.test('saved only-mine preference restores through the dropdown and choosing another person clears it', async () => {
     session = { user: self, admin: false };
@@ -146,6 +257,47 @@ test('person selection filters work and rest without changing identity or editin
         assert.equal(state.entries.length, 0);
         vm.$.props.filterUserId = ''; await flush();
         assert.equal(state.restEntries.length, 2);
+      } finally { app.unmount(); }
+    }
+  });
+
+  await t.test('date details respect status selection and can still edit a hidden existing schedule', async () => {
+    const date = '2026-11-04';
+    const daySchedules: Schedule[] = [
+      { userId: self.id, date, normalShift: 'full', overtime: true, version: 7 },
+      { userId: other.id, date, normalShift: 'rest', overtime: false, version: 8 },
+      { userId: unscheduled.id, date, normalShift: 'none', overtime: true, version: 9 },
+    ];
+    for (const [user, admin] of [[null, false], [self, false], [self, true]] as const) {
+      const app = renderer.createApp({ ...Dialog, render: () => null }, { date, users, schedules: daySchedules, currentUser: user, admin, onlyMine: false, filterUserId: '' });
+      app.provide(ssrContextKey, {});
+      const vm = app.mount({});
+      await flush();
+      const state = vm.$.setupState;
+      try {
+        assert.equal(state.entries.length, 3, 'omitted status props default to both selected');
+        vm.$.props.showWork = false; await flush();
+        assert.equal(state.workingEntries.length, 0);
+        assert.deepEqual(state.restEntries.map((entry: Schedule) => entry.userId), [other.id]);
+        assert.deepEqual(state.detailUsers.map((user: User) => user.id), [other.id]);
+        state.startEdit(self.id); await flush();
+        assert.equal(state.editing, !!user || admin);
+        if (state.editing) {
+          assert.equal(state.original.version, 7);
+          assert.deepEqual([...state.checks], [true, true, true, false]);
+          state.editing = false; await flush();
+        }
+        vm.$.props.showRest = false; await flush();
+        assert.equal(state.entries.length, 0);
+        vm.$.props.showWork = true; await flush();
+        assert.deepEqual(state.workingEntries.map((entry: Schedule) => entry.userId), [self.id, unscheduled.id]);
+        assert.equal(state.restEntries.length, 0);
+        state.startEdit(other.id); await flush();
+        assert.equal(state.editing, admin);
+        if (admin) {
+          assert.equal(state.original.version, 8);
+          assert.deepEqual([...state.checks], [false, false, false, true]);
+        }
       } finally { app.unmount(); }
     }
   });

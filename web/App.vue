@@ -15,6 +15,8 @@ const month = ref(shanghaiToday().slice(0, 7))
 const data = ref<MonthData>({ users: [], schedules: [], holidays: [], holidayStatus: 'pending', homeTitle: '团队排班', syncIntervalMinutes: 0.5 })
 const onlyMine = ref(localStorage.getItem('schedule.onlyMine') === 'true')
 const selectedUserId = ref('')
+const showWork = ref(localStorage.getItem('schedule.showWork') !== 'false')
+const showRest = ref(localStorage.getItem('schedule.showRest') !== 'false')
 const personFilter = computed({
   get: () => selectedUserId.value || (!admin.value && onlyMine.value ? currentUser.value?.id || '' : ''),
   set(value: string) { selectedUserId.value = value; onlyMine.value = !admin.value && !!currentUser.value && value === currentUser.value.id },
@@ -27,16 +29,17 @@ const holidayMap = computed(() => new Map(data.value.holidays.map(day => [day.da
 const calendarRows = computed(() => Array.from({ length: cells.value.length / 7 }, (_, week) => cells.value.slice(week * 7, week * 7 + 7).some(date => date && holidayText(date)) ? 84 : 64))
 const calendarStyle = computed(() => ({ gridTemplateRows: calendarRows.value.map(height => `minmax(${height}px, 1fr)`).join(' '), minHeight: `${calendarRows.value.reduce((sum, height) => sum + height, 0) + (calendarRows.value.length - 1) * 2}px` }))
 const userMap = computed(() => new Map(data.value.users.map(user => [user.id, user])))
+const visibleSchedules = computed(() => data.value.schedules.filter(entry => entry.normalShift === 'rest' ? showRest.value : showWork.value))
 const byDate = computed(() => {
   const result = new Map<string, Schedule[]>()
-  for (const entry of sortedSchedules(data.value.schedules, data.value.users)) { if (personFilter.value && entry.userId !== personFilter.value) continue; const entries = result.get(entry.date) || []; entries.push(entry); result.set(entry.date, entries) }
+  for (const entry of sortedSchedules(visibleSchedules.value, data.value.users)) { if (personFilter.value && entry.userId !== personFilter.value) continue; const entries = result.get(entry.date) || []; entries.push(entry); result.set(entry.date, entries) }
   return result
 })
 const detailByDate = computed(() => new Map([...byDate.value].map(([date, entries]) => [date, [
   { type: 'work', label: '上班', entries: entries.filter(entry => entry.normalShift !== 'rest') },
   { type: 'rest', label: '休息', entries: entries.filter(entry => entry.normalShift === 'rest') },
 ].filter(group => group.entries.length)])))
-const myDates = computed(() => new Map(data.value.schedules.filter(entry => entry.userId === currentUser.value?.id).map(entry => [entry.date, entry])))
+const myDates = computed(() => new Map(visibleSchedules.value.filter(entry => entry.userId === currentUser.value?.id).map(entry => [entry.date, entry])))
 const selectedDate = ref<string | null>(null)
 const calendar = ref<HTMLElement>()
 const viewportHeight = ref(window.innerHeight)
@@ -69,6 +72,8 @@ let identityAttempt = 0
 let timer: ReturnType<typeof setInterval> | undefined
 let observer: ResizeObserver
 watch(onlyMine, value => localStorage.setItem('schedule.onlyMine', String(value)))
+watch(showWork, value => localStorage.setItem('schedule.showWork', String(value)))
+watch(showRest, value => localStorage.setItem('schedule.showRest', String(value)))
 watch(() => data.value.users, users => { if (selectedUserId.value && !users.some(user => user.id === selectedUserId.value)) selectedUserId.value = '' })
 watch(displayMode, () => { void nextTick(fitAvatars) })
 watch(() => data.value.syncIntervalMinutes, () => { if (timer) restartSyncTimer() })
@@ -203,7 +208,13 @@ async function refreshHolidays() { busy.value = true; try { await api(`/admin/ho
       <div><h1>{{ data.homeTitle || '团队排班' }}</h1><span v-if="!connected" class="muted">正在连接…</span></div>
       <button v-if="admin" class="text-button" @click="logoutAdmin">退出管理</button>
     </header>
-    <div v-if="tab === 'calendar'" class="identity-toolbar"><span v-if="currentUser && !admin" class="welcome"><span class="welcome-label">欢迎</span><button class="welcome-name" :style="{ background: userBackground(currentUser) }" :aria-label="`修改我的名称：${currentUser.displayName}`" aria-haspopup="dialog" :disabled="busy" @click="openRename(currentUser)">{{ currentUser.displayName }}</button></span><div class="calendar-filters"><select v-model="personFilter" class="person-filter" aria-label="查看人员"><option value="">全部人员</option><option v-for="user in data.users" :key="user.id" :value="user.id">{{ user.displayName }}{{ user.id === currentUser?.id && !admin ? '（我）' : '' }}{{ user.deletedAt ? '（已删除）' : '' }}</option></select></div></div>
+    <div v-if="tab === 'calendar'" class="identity-toolbar">
+      <span v-if="currentUser && !admin" class="welcome"><span class="welcome-label">欢迎</span><button class="welcome-name" :style="{ background: userBackground(currentUser) }" :aria-label="`修改我的名称：${currentUser.displayName}`" aria-haspopup="dialog" :disabled="busy" @click="openRename(currentUser)">{{ currentUser.displayName }}</button></span>
+      <div class="calendar-filters">
+        <div class="status-filters" role="group" aria-label="查看排班状态"><label><input v-model="showWork" type="checkbox">上班</label><label class="rest-filter"><input v-model="showRest" type="checkbox">休息</label></div>
+        <select v-model="personFilter" class="person-filter" aria-label="查看人员"><option value="">全部人员</option><option v-for="user in data.users" :key="user.id" :value="user.id">{{ user.displayName }}{{ user.id === currentUser?.id && !admin ? '（我）' : '' }}{{ user.deletedAt ? '（已删除）' : '' }}</option></select>
+      </div>
+    </div>
     <nav v-if="admin" class="admin-tabs" aria-label="管理功能"><span class="mode-tag">管理模式</span><button v-for="item in [{ id: 'calendar', label: '排班日历' }, { id: 'users', label: '用户管理' }, { id: 'logs', label: '操作日志' }, { id: 'settings', label: '参数配置' }]" :key="item.id" :class="{ active: tab === item.id }" @click="changeTab(item.id)">{{ item.label }}</button></nav>
     <template v-if="tab === 'calendar'">
       <div class="month-navigation"><button class="icon-button" aria-label="上个月" @click="moveMonth(-1)">‹</button><button class="month-title" @click="pickedMonth = month; modal = 'month'"><span>{{ month.slice(0, 4) }} 年</span><strong>{{ Number(month.slice(5)) }} 月</strong></button><button class="icon-button" aria-label="下个月" @click="moveMonth(1)">›</button><button class="text-button current-month" @click="loadMonth(shanghaiToday().slice(0, 7))">回到本月</button></div>
@@ -226,7 +237,7 @@ async function refreshHolidays() { busy.value = true; try { await api(`/admin/ho
     <section v-if="admin && tab === 'settings'" class="management"><h2>参数配置</h2><form class="identity-form" @submit.prevent="saveSettings"><label class="field">首页左侧标题<input v-model="homeTitle" placeholder="团队排班" required :disabled="busy"></label><p class="muted">1–40 个字，保存后对所有人显示。</p><label class="field">自动同步间隔（分钟）<input v-model.number="syncIntervalMinutes" type="number" min="0" step="any" required :disabled="busy"></label><p class="muted">请输入大于 0 的分钟数，支持小数。页面可见时自动同步，默认 0.5 分钟（30 秒）。</p><button class="primary" :disabled="busy">{{ busy ? '保存中…' : '保存设置' }}</button></form><p v-if="settingsNotice" class="notice" role="status">{{ settingsNotice }}</p></section>
     <div v-if="error && !modal" class="error global-error" role="alert">{{ error }} <button class="text-button" @click="refresh">重试</button></div>
   </main>
-  <ScheduleDialog v-if="selectedDate" ref="scheduleDialog" :date="selectedDate" :users="data.users" :schedules="data.schedules" :current-user="currentUser" :admin="admin" :only-mine="filterMine" :filter-user-id="personFilter" :holiday="holidayMap.get(selectedDate)" @close="closeDate" @saved="loadMonth()" @login="requestIdentity" />
+  <ScheduleDialog v-if="selectedDate" ref="scheduleDialog" :date="selectedDate" :users="data.users" :schedules="data.schedules" :current-user="currentUser" :admin="admin" :only-mine="filterMine" :filter-user-id="personFilter" :show-work="showWork" :show-rest="showRest" :holiday="holidayMap.get(selectedDate)" @close="closeDate" @saved="loadMonth()" @login="requestIdentity" />
   <Modal v-if="modal === 'identity'" title="确认你的姓名" @close="closeModal">
     <p class="muted">输入姓名，新设备可认领已有成员。</p>
     <form v-if="candidates === null" class="identity-form" @submit.prevent="findIdentity"><label class="field">姓名<input v-model="name" maxlength="10" placeholder="1–10 个中文或英文字母" autocomplete="name" required :disabled="busy"></label><button class="primary" :disabled="busy">{{ busy ? '正在确认…' : '继续' }}</button></form>

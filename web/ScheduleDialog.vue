@@ -3,7 +3,7 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import Modal from './Modal.vue'
 import { api, ApiError } from './api'
 import { contiguousBlocks, selectedSlots, shiftLabel, sortedSchedules, userBackground, weekdays, type Holiday, type Schedule, type User } from './calendar'
-const props = defineProps<{ date: string; users: User[]; schedules: Schedule[]; currentUser: User | null; admin: boolean; onlyMine: boolean; filterUserId: string; holiday?: Holiday }>()
+const props = withDefaults(defineProps<{ date: string; users: User[]; schedules: Schedule[]; currentUser: User | null; admin: boolean; onlyMine: boolean; filterUserId: string; showWork?: boolean; showRest?: boolean; holiday?: Holiday }>(), { showWork: true, showRest: true })
 const emit = defineEmits<{ close: []; saved: []; login: [] }>()
 const title = computed(() => `${props.date.replace(/^(\d+)-(\d+)-(\d+)$/, (_, year, month, day) => `${year}年${Number(month)}月${Number(day)}日`)} · ${weekdays[new Date(props.date + 'T00:00:00Z').getUTCDay()]}`)
 const people = ref<HTMLElement>()
@@ -18,7 +18,7 @@ const busy = ref(false)
 const error = ref('')
 const notice = ref('')
 const frozen = ref<Schedule[]>([])
-const entries = computed(() => editing.value ? frozen.value : sortedSchedules(props.schedules.filter(entry => entry.date === props.date && (!props.filterUserId || entry.userId === props.filterUserId)), props.users))
+const entries = computed(() => editing.value ? frozen.value : sortedSchedules(props.schedules.filter(entry => entry.date === props.date && (!props.filterUserId || entry.userId === props.filterUserId) && (entry.normalShift === 'rest' ? props.showRest : props.showWork)), props.users))
 const workingEntries = computed(() => entries.value.filter(entry => entry.normalShift !== 'rest'))
 const restEntries = computed(() => entries.value.filter(entry => entry.normalShift === 'rest'))
 const userMap = computed(() => new Map(props.users.map(user => [user.id, user])))
@@ -116,7 +116,7 @@ function blockStyle(entry: Schedule, start: number, end: number) {
                 <span class="block-label"><span class="block-name">{{ userMap.get(entry.userId)!.displayName }}</span></span>
               </component>
             </article>
-            <p v-if="!workingEntries.length" class="empty-detail">{{ restEntries.length ? '当天无人上班' : '当天暂无排班' }}</p>
+            <p v-if="!workingEntries.length" class="empty-detail">{{ restEntries.length ? '当天无人上班' : !showWork || !showRest ? '当前筛选下暂无排班' : '当天暂无排班' }}</p>
           </div>
         </div>
         <button v-if="hasMoreLeft" type="button" class="scroll-edge scroll-left" aria-label="向左查看更多排班" @click="scrollPeople(-1)">‹</button>
